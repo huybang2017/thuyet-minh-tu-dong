@@ -1,0 +1,98 @@
+NAMESPACE = "public-ui"
+
+EN = {
+    "server.unreachable": "Cannot reach the server — showing the last loaded data",
+    "app.title": "Auto Narration Tour",
+    "lang.label": "Language",
+    "mock.label": "Mock GPS (click the map to move)",
+    "nav.admin": "Admin",
+    "nav.owner": "Owner portal",
+    "nav.login": "Sign in",
+    "poi.listen": "Listen",
+    "poi.menu": "Menu",
+    "poi.fallback": "Showing fallback language",
+    "narration.playing": "Now playing",
+    "consent.text": "May we collect anonymous usage statistics to improve the tour?",
+    "consent.accept": "Accept",
+    "consent.decline": "Decline",
+    "loading": "Loading...",
+    "ready.partial": "Translating interface in background",
+}
+
+VI = {
+    "server.unreachable": "Không kết nối được máy chủ — đang hiển thị dữ liệu đã tải gần nhất",
+    "app.title": "Thuyết Minh Tự Động",
+    "lang.label": "Ngôn ngữ",
+    "mock.label": "Giả lập GPS (bấm bản đồ để di chuyển)",
+    "nav.admin": "Quản trị",
+    "nav.owner": "Cổng chủ quán",
+    "nav.login": "Đăng nhập",
+    "poi.listen": "Nghe",
+    "poi.menu": "Thực đơn",
+    "poi.fallback": "Đang hiển thị ngôn ngữ dự phòng",
+    "narration.playing": "Đang phát",
+    "consent.text": "Bạn có đồng ý cho chúng tôi thu thập thống kê ẩn danh để cải thiện tour?",
+    "consent.accept": "Đồng ý",
+    "consent.decline": "Từ chối",
+    "loading": "Đang tải...",
+    "ready.partial": "Đang dịch giao diện dưới nền",
+}
+
+ZH = {
+    "server.unreachable": "无法连接服务器 — 正在显示上次加载的数据",
+    "app.title": "自动导览解说",
+    "lang.label": "语言",
+    "mock.label": "模拟GPS（点击地图移动）",
+    "nav.admin": "管理",
+    "nav.owner": "店主入口",
+    "nav.login": "登录",
+    "poi.listen": "收听",
+    "poi.menu": "菜单",
+    "poi.fallback": "正在显示备用语言",
+    "narration.playing": "正在播放",
+    "consent.text": "我们可以收集匿名使用统计以改进导览吗？",
+    "consent.accept": "同意",
+    "consent.decline": "拒绝",
+    "loading": "加载中...",
+    "ready.partial": "正在后台翻译界面",
+}
+
+JA = {
+    "server.unreachable": "サーバーに接続できません — 最後に読み込んだデータを表示中",
+    "app.title": "自動ナレーションツアー",
+    "lang.label": "言語",
+    "mock.label": "GPSを模擬（地図をクリックして移動）",
+    "nav.admin": "管理",
+    "nav.owner": "オーナーポータル",
+    "nav.login": "ログイン",
+    "poi.listen": "聞く",
+    "poi.menu": "メニュー",
+    "poi.fallback": "代替言語を表示中",
+    "narration.playing": "再生中",
+    "consent.text": "ツアー改善のため匿名の利用統計を収集してもよろしいですか？",
+    "consent.accept": "同意する",
+    "consent.decline": "拒否する",
+    "loading": "読み込み中...",
+    "ready.partial": "バックグラウンドでUIを翻訳中",
+}
+
+KO = {
+    "server.unreachable": "서버에 연결할 수 없습니다 — 마지막으로 불러온 데이터를 표시 중",
+    "app.title": "자동 해설 투어",
+    "lang.label": "언어",
+    "mock.label": "GPS 시뮬레이션 (지도를 클릭해 이동)",
+    "nav.admin": "관리자",
+    "nav.owner": "사장님 포털",
+    "nav.login": "로그인",
+    "poi.listen": "듣기",
+    "poi.menu": "메뉴",
+    "poi.fallback": "대체 언어로 표시 중",
+    "narration.playing": "재생 중",
+    "consent.text": "투어 개선을 위해 익명 사용 통계를 수집해도 될까요?",
+    "consent.accept": "동의",
+    "consent.decline": "거부",
+    "loading": "로딩 중...",
+    "ready.partial": "백그라운드에서 UI 번역 중",
+}
+
+STATIC = {"en": EN, "vi": VI, "zh": ZH, "ja": JA, "ko": KO}
