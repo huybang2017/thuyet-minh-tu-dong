@@ -1,6 +1,5 @@
-"""AudioTaskManager: sinh bản dịch + audio nền cho POI, có pause/resume/cancel, snapshot Mongo, SSE."""
+"""AudioTaskManager: sinh bản dịch + audio nền cho POI, có pause/resume/cancel, snapshot MySQL, SSE."""
 import asyncio
-import uuid
 from datetime import datetime, timedelta, timezone
 
 from ..db import get_db
@@ -10,9 +9,10 @@ HEARTBEAT_S = 5
 STALE_AFTER = timedelta(minutes=5)
 RETENTION = timedelta(days=14)
 
-_tasks: dict[str, dict] = {}
-_pause: dict[str, asyncio.Event] = {}
-_cancel: set[str] = set()
+_tasks: dict[int, dict] = {}
+_pause: dict[int, asyncio.Event] = {}
+_cancel: set[int] = set()
+_last_id = 0  # id task số tăng dần (task chạy trong tiến trình; khởi tạo từ MAX(id) trong DB khi khởi động)
 _running: set[asyncio.Task] = set()
 
 
@@ -26,31 +26,35 @@ def snapshot(t: dict) -> dict:
 
 async def _save(t: dict) -> None:
     t["updated_at"] = _now()
-    await get_db().audio_tasks.update_one({"_id": t["id"]}, {"$set": {**t, "_id": t["id"]}}, upsert=True)
+    row = {k: t[k] for k in ("id", "poi_id", "langs", "status", "total", "done", "failed_langs", "error", "created_at", "updated_at")}
+    await get_db().upsert("audio_tasks", row, [c for c in row if c not in ("id", "created_at")])
 
 
 async def recover_after_restart() -> int:
     """Task đang queued/running trước khi restart được đánh dấu failed để admin chạy lại."""
-    res = await get_db().audio_tasks.update_many(
-        {"status": {"$in": ["queued", "running", "paused"]}},
-        {"$set": {"status": "failed", "error": "interrupted by restart", "updated_at": _now()}},
-    )
-    return res.modified_count
+    return await get_db().execute(
+        "UPDATE audio_tasks SET status='failed', error='interrupted by restart', updated_at=%s "
+        "WHERE status IN ('queued','running','paused')", [_now()])
 
 
 async def ensure_indexes() -> None:
-    await get_db().audio_tasks.create_index("updated_at", expireAfterSeconds=int(RETENTION.total_seconds()))
+    """MySQL không có TTL index: dọn task cũ hơn RETENTION khi khởi động."""
+    await get_db().execute("DELETE FROM audio_tasks WHERE updated_at < %s", [_now() - RETENTION])
 
 
 async def load_recent(limit: int = 50) -> None:
-    async for d in get_db().audio_tasks.find({}).sort("updated_at", -1).limit(limit):
+    global _last_id
+    _last_id = max(_last_id, int(await get_db().scalar("SELECT COALESCE(MAX(id), 0) FROM audio_tasks") or 0))
+    for d in await get_db().fetchall("SELECT * FROM audio_tasks ORDER BY updated_at DESC LIMIT %s", [limit]):
         t = {k: v for k, v in d.items() if k != "_id"}
         _tasks.setdefault(t["id"], t)
 
 
-def enqueue(poi_id: str, langs: list[str] | None = None) -> dict:
+def enqueue(poi_id: int, langs: list[str] | None = None) -> dict:
+    global _last_id
     langs = langs or PRIORITY_LANGS
-    t = {"id": uuid.uuid4().hex[:12], "poi_id": poi_id, "langs": langs, "status": "queued",
+    _last_id += 1
+    t = {"id": _last_id, "poi_id": poi_id, "langs": langs, "status": "queued",
          "total": len(langs), "done": 0, "failed_langs": [], "error": None,
          "created_at": _now(), "updated_at": _now()}
     _tasks[t["id"]] = t
@@ -71,7 +75,7 @@ async def _run(t: dict) -> None:
     try:
         t["status"] = "running"
         await _save(t)
-        poi = await db.poi.find_one({"_id": t["poi_id"]})
+        poi = await db.fetchone("SELECT * FROM poi WHERE id=%s AND deleted_at IS NULL", [t["poi_id"]])
         if not poi:
             raise RuntimeError("POI không tồn tại")
 
@@ -100,20 +104,20 @@ async def _run(t: dict) -> None:
             t["status"] = "failed" if "en" in t["failed_langs"] else "completed"
             ok = t["status"] == "completed"
             update = {"audio_status": "ready" if ok else "failed"}
-            fresh = await db.poi.find_one({"_id": t["poi_id"]})
+            fresh = await db.fetchone("SELECT * FROM poi WHERE id=%s AND deleted_at IS NULL", [t["poi_id"]])
             if ok and fresh and fresh.get("activation_requested"):
                 update.update({"is_active": True, "activation_requested": False, "updated_at": _now()})
             if fresh:
-                await db.poi.update_one({"_id": t["poi_id"]}, {"$set": update})
+                await db.update("poi", t["poi_id"], update)
     except Exception as e:
         t["status"], t["error"] = "failed", str(e)[:200]
-        await db.poi.update_one({"_id": t["poi_id"]}, {"$set": {"audio_status": "failed"}})
+        await db.update("poi", t["poi_id"], {"audio_status": "failed"})
     finally:
         _cancel.discard(tid)
         await _save(t)
 
 
-def control(tid: str, action: str) -> dict | None:
+def control(tid: int, action: str) -> dict | None:
     t = _tasks.get(tid)
     if not t:
         return None

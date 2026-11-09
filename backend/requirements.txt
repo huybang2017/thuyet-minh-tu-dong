@@ -1,6 +1,7 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
-motor==3.6.0
+aiomysql==0.2.0
+PyMySQL==1.1.1
 redis==5.2.1
 pydantic-settings==2.7.0
 pydantic[email]==2.10.4

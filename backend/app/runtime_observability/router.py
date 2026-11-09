@@ -23,16 +23,16 @@ async def ingest(body: Loc, request: Request):
         raise HTTPException(429, "Quá nhiều yêu cầu")
     hour = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
     cell = f"{round(body.lat, 3)}:{round(body.lng, 3)}"  # ~110 m, không định danh được cá nhân
-    await get_db().runtime_location_hourly.update_one(
-        {"hour": hour, "cell": cell},
-        {"$inc": {"count": 1}, "$setOnInsert": {"lat": round(body.lat, 3), "lng": round(body.lng, 3)}}, upsert=True)
+    await get_db().execute(
+        "INSERT INTO runtime_location_hourly (`hour`, cell, lat, lng, `count`) VALUES (%s,%s,%s,%s,1) "
+        "ON DUPLICATE KEY UPDATE `count`=`count`+1", [hour, cell, round(body.lat, 3), round(body.lng, 3)])
     return {"ok": True}
 
 
 @router.get("/admin/observability")
 async def window(hours: int = 24, _=Depends(require_permission("system:logs"))):
     since = datetime.now(timezone.utc) - timedelta(hours=min(hours, 168))
-    docs = await get_db().runtime_location_hourly.find({"hour": {"$gte": since}}).to_list(2000)
+    docs = await get_db().fetchall("SELECT * FROM runtime_location_hourly WHERE `hour` >= %s LIMIT 2000", [since])
     cells: dict[str, dict] = {}
     for d in docs:
         c = cells.setdefault(d["cell"], {"lat": d["lat"], "lng": d["lng"], "count": 0})

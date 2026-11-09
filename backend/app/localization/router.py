@@ -12,12 +12,12 @@ router = APIRouter(prefix="/api/v1/localizations", tags=["localization"])
 
 
 class OnDemand(BaseModel):
-    poi_id: str
+    poi_id: int
     lang: str
 
 
 async def _warm(lang: str):
-    pois = await get_db().poi.find({"is_active": True}).to_list(1000)
+    pois = await get_db().fetchall("SELECT * FROM poi WHERE is_active=1 AND deleted_at IS NULL LIMIT 1000")
     for p in pois:
         try:
             await service.ensure_localization(p, lang)
@@ -33,7 +33,7 @@ async def on_demand(body: OnDemand, request: Request):
     retry = await service.check_rate_limit(request.client.host if request.client else "anon")
     if retry:
         return JSONResponse({"detail": "Quá nhiều yêu cầu"}, status_code=429, headers={"Retry-After": str(retry)})
-    poi = await get_db().poi.find_one({"_id": body.poi_id})
+    poi = await get_db().fetchone("SELECT * FROM poi WHERE id=%s AND deleted_at IS NULL", [body.poi_id])
     if not poi:
         raise HTTPException(404, "POI không tồn tại")
     loc = await service.ensure_localization(poi, body.lang)

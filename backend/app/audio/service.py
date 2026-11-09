@@ -64,8 +64,27 @@ async def _mymemory_translate(text: str, target: str) -> str:
     return " ".join(out)
 
 
+_LANG_NAMES = {"en": "English", "zh-CN": "Simplified Chinese", "ja": "Japanese", "ko": "Korean"}
+
+
+async def _gemini_translate(text: str, target: str) -> str:
+    from ..config import settings
+    if not settings.gemini_api_key:
+        raise RuntimeError("no gemini key")
+    prompt = (f"Translate the following Vietnamese text into {_LANG_NAMES.get(target, target)}. "
+              f"Output only the translation, no notes.\n\n{text}")
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_model}:generateContent",
+            headers={"x-goog-api-key": settings.gemini_api_key},
+            json={"contents": [{"parts": [{"text": prompt}]}]})
+        r.raise_for_status()
+        return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+
 async def _provider_chain(text: str, target: str) -> str:
     providers = [
+        _gemini_translate,
         _gtx_translate,
         _mymemory_translate,
         lambda t, tg: asyncio.to_thread(GoogleTranslator(source="vi", target=tg).translate, t),
@@ -92,12 +111,12 @@ async def translate_text(text: str, lang: str) -> str:
     target = _TRANSLATE_CODE.get(lang, lang)
     key = hashlib.md5(f"{text}|{lang}".encode()).hexdigest()
     db = get_db()
-    hit = await db.translation_cache.find_one({"_id": key})
+    hit = await db.fetchone("SELECT text FROM translation_cache WHERE cache_key=%s", [key])
     if hit:
         return hit["text"]
     async with _translate_sem:
         out = await _provider_chain(text, target)
-    await db.translation_cache.update_one({"_id": key}, {"$set": {"text": out, "lang": lang}}, upsert=True)
+    await db.upsert("translation_cache", {"cache_key": key, "lang": lang, "text": out}, ["lang", "text"])
     return out
 
 

@@ -26,6 +26,8 @@ def create_token(payload: dict, kind: str) -> str:
     else:
         ttl, secret = timedelta(days=settings.refresh_token_expire_days), settings.refresh_token_secret
     data = {**payload, "type": kind, "exp": datetime.now(timezone.utc) + ttl}
+    if "sub" in data:
+        data["sub"] = str(data["sub"])  # claim `sub` phải là chuỗi; id người dùng là số
     return jwt.encode(data, secret, algorithm="HS256")
 
 
@@ -35,7 +37,13 @@ def decode_token(token: str, kind: str) -> dict | None:
         data = jwt.decode(token, secret, algorithms=["HS256"])
     except jwt.PyJWTError:
         return None
-    return data if data.get("type") == kind else None
+    if data.get("type") != kind:
+        return None
+    try:
+        data["sub"] = int(data["sub"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return data
 
 
 def _fernet() -> Fernet:

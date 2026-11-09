@@ -101,6 +101,8 @@ def test_users_crud_and_guards(admin):
     assert admin.put(f"{A}/users/{me}", json={"is_active": False}).status_code == 400
     assert admin.delete(f"{A}/users/{uid_}").status_code == 200
     assert admin.delete(f"{A}/users/{uid_}").status_code == 404
+    assert uid_ not in [u["id"] for u in admin.get(f"{A}/users").json()["items"]]  # xoá mềm: ẩn khỏi danh sách
+    assert make_client().post(f"{A}/auth/login", json={"username": name, "password": "Passw0rd!x"}).status_code == 401
 
 
 def test_login_rate_limit():
@@ -119,11 +121,11 @@ def test_poi_validation(admin):
     assert admin.post(f"{A}/pois", json={**POI_BODY, "lat": 200}).status_code == 422
     assert admin.post(f"{A}/pois", json={**POI_BODY, "name": ""}).status_code == 422
     assert admin.post(f"{A}/pois", json={**POI_BODY, "trigger_radius": 1}).status_code == 422
-    assert admin.put(f"{A}/pois/khong-ton-tai", json={"name": "x"}).status_code == 404
-    assert admin.delete(f"{A}/pois/khong-ton-tai").status_code == 404
+    assert admin.put(f"{A}/pois/999999999", json={"name": "x"}).status_code == 404
+    assert admin.delete(f"{A}/pois/999999999").status_code == 404
 
 
-def test_poi_lifecycle_activation_gate_delta_and_delete(admin, anon, mongo):
+def test_poi_lifecycle_activation_gate_delta_and_delete(admin, anon, sql):
     r = admin.post(f"{A}/pois", json=POI_BODY)
     assert r.status_code == 201
     pid = r.json()["id"]
@@ -135,7 +137,7 @@ def test_poi_lifecycle_activation_gate_delta_and_delete(admin, anon, mongo):
         assert pid not in [p["id"] for p in pub]
         st = wait_for(lambda: (s := _poi_state(admin, pid)) and s["audio_status"] == "ready" and s)
         assert st["is_active"] is True
-        assert mongo.poi_localizations.count_documents({"poi_id": pid}) == 5
+        assert sql.scalar("SELECT COUNT(*) FROM poi_localizations WHERE poi_id=%s", [pid]) == 5
         en = anon.get("/api/v1/poi/load-all?lang=en").json()["pois"]
         mine = next(p for p in en if p["id"] == pid)
         assert mine["lang"] == "en" and mine["is_fallback"] is False and mine["audio_url"].startswith("/static/audio/")
@@ -169,14 +171,19 @@ def test_poi_lifecycle_activation_gate_delta_and_delete(admin, anon, mongo):
         assert admin.post(f"{A}/pois/{pid}/toggle", json={"active": True}).status_code == 200
         assert _poi_state(admin, pid)["is_active"] is True  # EN đã sẵn sàng → bật ngay
 
-        # xoá → cascade + removed_poi_ids
+        # xoá mềm → dòng + bản dịch được giữ, nhưng biến mất khỏi admin/app và delta báo removed_poi_ids
         cursor = anon.get("/api/v1/poi/load-all?lang=vi").json()["sync_cursor"]
         assert admin.delete(f"{A}/pois/{pid}").status_code == 200
-        assert mongo.poi_localizations.count_documents({"poi_id": pid}) == 0
+        assert sql.scalar("SELECT COUNT(*) FROM poi_localizations WHERE poi_id=%s", [pid]) == 5
+        assert sql.scalar("SELECT deleted_at IS NOT NULL FROM poi WHERE id=%s", [pid]) == 1
+        assert pid not in [p["id"] for p in admin.get(f"{A}/pois").json()["items"]]
+        assert pid not in [p["id"] for p in anon.get("/api/v1/poi/load-all?lang=vi").json()["pois"]]
         d3 = anon.get("/api/v1/poi/load-all", params={"lang": "vi", "updated_after": cursor}).json()
         assert pid in d3["removed_poi_ids"]
+        assert admin.delete(f"{A}/pois/{pid}").status_code == 404  # đã xoá
+        assert admin.put(f"{A}/pois/{pid}", json={"audio_priority": 4}).status_code == 404
     finally:
-        admin.delete(f"{A}/pois/{pid}")
+        sql.exec("DELETE FROM poi WHERE id=%s", [pid])  # dọn hẳn dữ liệu test (cascade)
 
 
 def test_nearby_and_fallback_tiers(anon, admin):
@@ -189,9 +196,9 @@ def test_nearby_and_fallback_tiers(anon, admin):
     assert pois and all("is_fallback" in p for p in pois)
 
 
-def test_menu_crud_and_public(admin, anon):
-    pid = "poi-oc-oanh"
-    assert admin.post(f"{A}/menus", json={"poi_id": "ghost", "name": "x", "price": 1}).status_code == 404
+def test_menu_crud_and_public(admin, anon, sql):
+    pid = sql.scalar("SELECT id FROM poi WHERE name=%s", ["Ốc Oanh"])
+    assert admin.post(f"{A}/menus", json={"poi_id": 999999999, "name": "x", "price": 1}).status_code == 404
     assert admin.post(f"{A}/menus", json={"poi_id": pid, "name": "x", "price": -5}).status_code == 422
     m = admin.post(f"{A}/menus", json={"poi_id": pid, "name": "Ốc len xào dừa", "price": 65000})
     assert m.status_code == 201
@@ -221,11 +228,11 @@ def test_owner_registration_validation(anon):
     assert anon.post(f"{A}/auth/register-owner", json=body).status_code == 409
 
 
-def test_owner_full_flow(admin, anon, mongo):
+def test_owner_full_flow(admin, anon, sql):
     body, r = _register(anon)
     assert r.status_code == 201
     assert "012345678901" not in r.text and "cccd" not in r.json()
-    reg = mongo.poi_owner_registrations.find_one({"shop_name": "Quán Của Tôi", "status": "pending"}, sort=[("created_at", -1)])
+    reg = sql.one("SELECT * FROM poi_owner_registrations WHERE shop_name=%s AND status='pending' ORDER BY created_at DESC LIMIT 1", ["Quán Của Tôi"])
     assert reg["cccd_encrypted"].startswith("v1:") and "012345678901" not in reg["cccd_encrypted"]
 
     owner = make_client()
@@ -268,32 +275,32 @@ def test_owner_full_flow(admin, anon, mongo):
     pid = mypois[0]["id"]
     try:
         # owner không sửa được quán người khác
-        assert owner.put("/api/v1/owner/pois/poi-oc-oanh", json={"name": "Hack"}).status_code == 404
+        assert owner.put(f"/api/v1/owner/pois/{sql.scalar('SELECT id FROM poi WHERE name=%s', ['Ốc Oanh'])}", json={"name": "Hack"}).status_code == 404
         assert owner.put(f"/api/v1/owner/pois/{pid}", json={}).status_code == 422
         r = owner.put(f"/api/v1/owner/pois/{pid}", json={"description": "Mô tả mới do chủ quán."})
         assert r.status_code == 200 and r.json()["status"] == "pending"
         sid2 = r.json()["id"]
-        old_desc = mongo.poi.find_one({"_id": pid})["description"]
+        old_desc = sql.one("SELECT description FROM poi WHERE id=%s", [pid])["description"]
         assert old_desc != "Mô tả mới do chủ quán."  # chưa duyệt thì chưa đổi
         # reject → thông báo, dữ liệu giữ nguyên
         assert admin.post(f"{A}/submissions/{sid2}/reject", json={"admin_note": "Thiếu chi tiết"}).status_code == 200
-        assert mongo.poi.find_one({"_id": pid})["description"] == old_desc
+        assert sql.one("SELECT description FROM poi WHERE id=%s", [pid])["description"] == old_desc
         assert owner.get("/api/v1/owner/notifications").json()["items"][0]["body"] == "Thiếu chi tiết"
         # owner không vào được admin
         assert owner.get(f"{A}/users").status_code == 403
         assert owner.get("/api/v1/owner/analytics").status_code == 200
     finally:
         admin.delete(f"{A}/pois/{pid}")
-        mongo.admin_users.delete_one({"_id": reg["user_id"]})
+        sql.exec("DELETE FROM admin_users WHERE id=%s", [reg["user_id"]])
 
 
-def test_owner_registration_reject(admin, anon, mongo):
+def test_owner_registration_reject(admin, anon, sql):
     body, _ = _register(anon)
-    reg = mongo.poi_owner_registrations.find_one({"user_id": mongo.admin_users.find_one({"username": body["username"]})["_id"]})
-    assert admin.post(f"{A}/registrations/{reg['_id']}/reject", json={"admin_note": "Thiếu giấy tờ"}).status_code == 200
-    u = mongo.admin_users.find_one({"_id": reg["user_id"]})
-    assert u["is_poi_owner_verified"] is False
-    mongo.admin_users.delete_one({"_id": reg["user_id"]})
+    reg = sql.one("SELECT r.* FROM poi_owner_registrations r JOIN admin_users u ON u.id=r.user_id WHERE u.username=%s", [body["username"]])
+    assert admin.post(f"{A}/registrations/{reg['id']}/reject", json={"admin_note": "Thiếu giấy tờ"}).status_code == 200
+    u = sql.one("SELECT * FROM admin_users WHERE id=%s", [reg["user_id"]])
+    assert not u["is_poi_owner_verified"]
+    sql.exec("DELETE FROM admin_users WHERE id=%s", [reg["user_id"]])
 
 
 # ---------- AI advisor ----------
@@ -311,7 +318,7 @@ def test_ai_advisor_quota_and_errors(admin, make_user, anon):
 # ---------- analytics / observability ----------
 def test_analytics_consent_gate(admin, anon):
     dev = uid("dev") + "0000"
-    ev = {"device_id": dev, "event": "narration_played", "poi_id": "poi-oc-oanh", "lang": "en"}
+    ev = {"device_id": dev, "event": "narration_played", "poi_id": 1, "lang": "en"}
     assert anon.post("/api/v1/analytics/collect", json={**ev, "consent": False}).status_code == 403
     assert anon.post("/api/v1/analytics/collect", json={**ev, "consent": True, "event": "hack"}).status_code == 422
     assert anon.post("/api/v1/analytics/collect", json={**ev, "consent": True, "device_id": "bad id!"}).status_code == 422
@@ -322,11 +329,11 @@ def test_analytics_consent_gate(admin, anon):
     assert anon.get("/api/v1/analytics/summary").status_code == 401
 
 
-def test_runtime_observability_separate_lane(admin, anon, mongo):
-    before = mongo.analytics_events.count_documents({})
+def test_runtime_observability_separate_lane(admin, anon, sql):
+    before = sql.scalar("SELECT COUNT(*) FROM analytics_events")
     assert anon.post("/api/v1/runtime/location", json={"lat": 10.7611, "lng": 106.7041}).status_code == 202
     assert anon.post("/api/v1/runtime/location", json={"lat": 999, "lng": 0}).status_code == 422
-    assert mongo.analytics_events.count_documents({}) == before  # không trộn vào analytics
+    assert sql.scalar("SELECT COUNT(*) FROM analytics_events") == before  # không trộn vào analytics
     w = admin.get(f"{A}/observability").json()
     assert w["total"] >= 1 and w["cells"][0]["count"] >= 1
     assert anon.get(f"{A}/observability").status_code == 401
@@ -362,11 +369,11 @@ def test_audio_tts(anon):
 
 
 def test_on_demand_errors_and_rate_limit(anon):
-    assert anon.post("/api/v1/localizations/on-demand", json={"poi_id": "x", "lang": "xx"}).status_code == 400
-    assert anon.post("/api/v1/localizations/on-demand", json={"poi_id": "ghost", "lang": "en"}).status_code == 404
-    codes = [anon.post("/api/v1/localizations/on-demand", json={"poi_id": "ghost", "lang": "en"}).status_code for _ in range(32)]
+    assert anon.post("/api/v1/localizations/on-demand", json={"poi_id": 1, "lang": "xx"}).status_code == 400
+    assert anon.post("/api/v1/localizations/on-demand", json={"poi_id": 999999999, "lang": "en"}).status_code == 404
+    codes = [anon.post("/api/v1/localizations/on-demand", json={"poi_id": 999999999, "lang": "en"}).status_code for _ in range(32)]
     assert 429 in codes
-    r = anon.post("/api/v1/localizations/on-demand", json={"poi_id": "ghost", "lang": "en"})
+    r = anon.post("/api/v1/localizations/on-demand", json={"poi_id": 999999999, "lang": "en"})
     assert r.status_code == 429 and int(r.headers["retry-after"]) > 0
     import redis
     rc = redis.Redis.from_url("redis://redis:6379/0")
@@ -375,13 +382,13 @@ def test_on_demand_errors_and_rate_limit(anon):
 
 
 # ---------- audio task control / SSE ----------
-def test_audio_task_pause_cancel_and_sse(admin, anon):
-    pid = "poi-che"
+def test_audio_task_pause_cancel_and_sse(admin, anon, sql):
+    pid = sql.scalar("SELECT id FROM poi WHERE name=%s", ["Chè Bà Ba"])
     t = admin.post(f"{A}/pois/{pid}/regenerate-audio").json()
     assert t["status"] in ("queued", "running")
     tid = t["id"]
     assert admin.post(f"{A}/audio-tasks/{tid}/explode").status_code == 400
-    assert admin.post(f"{A}/audio-tasks/nope/cancel").status_code == 404
+    assert admin.post(f"{A}/audio-tasks/999999999/cancel").status_code == 404
     admin.post(f"{A}/audio-tasks/{tid}/pause")
     admin.post(f"{A}/audio-tasks/{tid}/resume")
     admin.post(f"{A}/audio-tasks/{tid}/cancel")
@@ -391,7 +398,7 @@ def test_audio_task_pause_cancel_and_sse(admin, anon):
         assert s.headers["content-type"].startswith("text/event-stream")
         line = next(l for l in s.iter_lines() if l.startswith("data:"))
         assert isinstance(json.loads(line[5:]), list)
-    # khôi phục audio cho poi-che để không ảnh hưởng test khác
+    # khôi phục audio cho quán Chè Bà Ba để không ảnh hưởng test khác
     admin.post(f"{A}/pois/{pid}/regenerate-audio")
     assert anon.get("/health").status_code == 200
 

@@ -60,8 +60,9 @@ async def _translate_and_store(locale: str) -> None:
         if failed > len(EN) * MAX_FAILED_RATIO:
             _retry_after[locale] = time.monotonic() + RETRY_COOLDOWN_S  # thử lại sau, không lưu bản hỏng
             return
-        await get_db().ui_translation_bundles.update_one(
-            key, {"$set": {**key, "status": "ready", "strings": strings, "updated_at": datetime.now(timezone.utc)}}, upsert=True)
+        await get_db().upsert("ui_translation_bundles",
+                              {**key, "status": "ready", "strings": strings, "updated_at": datetime.now(timezone.utc)},
+                              ["status", "strings", "updated_at"])
     finally:
         _inflight.discard(locale)
 
@@ -73,8 +74,9 @@ async def bundle(locale: str, tasks: BackgroundTasks):
     base = locale.split("-")[0]
     if base in STATIC:  # 5 ngôn ngữ top-level: bundle tĩnh, luôn ready
         return {"namespace": NAMESPACE, "locale": base, "status": "ready", "source_hash": SOURCE_HASH, "strings": STATIC[base]}
-    cached = await get_db().ui_translation_bundles.find_one(
-        {"namespace": NAMESPACE, "locale": locale, "source_hash": SOURCE_HASH, "status": "ready"})
+    cached = await get_db().fetchone(
+        "SELECT strings FROM ui_translation_bundles WHERE namespace=%s AND locale=%s AND source_hash=%s AND status='ready'",
+        [NAMESPACE, locale, SOURCE_HASH])
     if cached:
         return {"namespace": NAMESPACE, "locale": locale, "status": "ready", "source_hash": SOURCE_HASH, "strings": cached["strings"]}
     if locale not in _inflight and time.monotonic() >= _retry_after.get(locale, 0):

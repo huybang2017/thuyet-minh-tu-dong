@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -15,6 +15,39 @@ const MAP_STYLE = {
   version: 8,
   sources: { osm: { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, attribution: '© OpenStreetMap' } },
   layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+}
+
+const fmtPrice = (n) => `${Number(n).toLocaleString('vi-VN')}đ`
+
+/** Bảng thông tin quán: tên, mô tả, thực đơn (tải khi mở). Dựng bằng DOM + textContent để không chèn HTML từ dữ liệu. */
+function buildPopup(poi, menuLabel) {
+  const el = document.createElement('div')
+  const title = document.createElement('b')
+  title.textContent = poi.name
+  const desc = document.createElement('p')
+  desc.textContent = poi.description
+  desc.style.margin = '4px 0'
+  const menu = document.createElement('div')
+  el.append(title, desc, menu)
+  const popup = new maplibregl.Popup({ maxWidth: '280px' }).setDOMContent(el)
+  popup.on('open', async () => {
+    try {
+      const res = await fetch(`/api/v1/poi/${poi.id}/menu`)
+      const { items } = await res.json()
+      if (!items?.length) return
+      const head = document.createElement('b')
+      head.textContent = menuLabel
+      const ul = document.createElement('ul')
+      ul.style.cssText = 'margin:4px 0 0;padding-left:18px'
+      items.forEach((i) => {
+        const li = document.createElement('li')
+        li.textContent = `${i.name} — ${fmtPrice(i.price)}`
+        ul.append(li)
+      })
+      menu.replaceChildren(head, ul)
+    } catch { /* popup vẫn hiện mô tả */ }
+  })
+  return popup
 }
 
 function Splash({ onPick, t }) {
@@ -35,12 +68,38 @@ export default function MapApp() {
   const [current, setCurrent] = useState(null)
   const [tier, setTier] = useState(null)
   const [consent, setConsentState] = useState(consentState())
+  const [area, setArea] = useState('')
   const mapEl = useRef(null)
   const map = useRef(null)
   const userMarker = useRef(null)
   const engine = useRef(null)
   const loc = useRef(null)
   const narrator = useRef(null)
+
+  // khu vực suy ra từ dữ liệu quán; tâm khu vực = trung bình toạ độ các quán trong khu
+  const areas = useMemo(() => {
+    const g = {}
+    pois.forEach((p) => {
+      if (!p.area) return
+      const a = (g[p.area] ||= { name: p.area, lat: 0, lng: 0, n: 0 })
+      a.lat += p.lat; a.lng += p.lng; a.n += 1
+    })
+    return Object.values(g).map((a) => ({ name: a.name, lat: a.lat / a.n, lng: a.lng / a.n })).sort((x, y) => x.name.localeCompare(y.name, 'vi'))
+  }, [pois])
+
+  const goArea = (name) => {
+    setArea(name)
+    const m = map.current
+    if (!m) return
+    if (!name) {
+      const b = new maplibregl.LngLatBounds()
+      pois.forEach((p) => b.extend([p.lng, p.lat]))
+      if (!b.isEmpty()) m.fitBounds(b, { padding: 50, maxZoom: 14 })
+      return
+    }
+    const a = areas.find((x) => x.name === name)
+    if (a) m.flyTo({ center: [a.lng, a.lat], zoom: 16 })
+  }
 
   // khởi động: nạp UI bundle + POI, delta sync định kỳ
   useEffect(() => {
@@ -69,7 +128,10 @@ export default function MapApp() {
     map.current.on('click', (e) => loc.current.pushMock(e.lngLat.lat, e.lngLat.lng))
     if (import.meta.env.DEV) window.__geo = { engine: engine.current, map: map.current }
     track('app_open')
-    return () => { narrator.current.stop(); engine.current.stop(); loc.current.stop(); map.current.remove() }
+    // bản đồ phải co giãn theo khung chứa (đổi cỡ cửa sổ, bố cục xong sau khi khởi tạo...)
+    const ro = new ResizeObserver(() => map.current?.resize())
+    ro.observe(mapEl.current)
+    return () => { ro.disconnect(); narrator.current.stop(); engine.current.stop(); loc.current.stop(); map.current.remove() }
   }, [])
 
   useEffect(() => {
@@ -77,7 +139,7 @@ export default function MapApp() {
     const m = map.current
     const markers = pois.map((p) => new maplibregl.Marker({ color: p.is_fallback ? '#9e9e9e' : '#e65100' })
       .setLngLat([p.lng, p.lat])
-      .setPopup(new maplibregl.Popup().setHTML(`<b>${p.name}</b><br/>${p.description}`)).addTo(m))
+      .setPopup(buildPopup(p, useUi.getState().t('poi.menu'))).addTo(m))
     return () => markers.forEach((x) => x.remove())
   }, [pois])
 
@@ -93,6 +155,12 @@ export default function MapApp() {
         <label className="sr">{t('lang.label')}
           <select aria-label={t('lang.label')} value={lang} onChange={(e) => pickLang(e.target.value)}>
             {Object.entries(LANGS).map(([c, n]) => <option key={c} value={c}>{n}</option>)}</select></label>
+        {areas.length > 1 && (
+          <label>{t('area.label')}
+            <select aria-label={t('area.label')} value={area} onChange={(e) => goArea(e.target.value)}>
+              <option value="">{t('area.all')}</option>
+              {areas.map((a) => <option key={a.name} value={a.name}>{a.name}</option>)}
+            </select></label>)}
         <label><input type="checkbox" checked={mock} onChange={(e) => setMock(e.target.checked)} /> {t('mock.label')}</label>
         <span className="spacer" />
         {user ? <Link className="lnk" to={user.role === 'poi_owner' ? '/owner' : '/admin'}>{user.username}</Link>

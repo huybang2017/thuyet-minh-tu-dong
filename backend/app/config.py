@@ -5,8 +5,11 @@ _DEV_DEFAULT = "change-me"
 
 class Settings(BaseSettings):
     app_env: str = "dev"
-    mongo_url: str = "mongodb://localhost:27017"
-    mongo_db: str = "thuyetminh"
+    mysql_host: str = "localhost"
+    mysql_port: int = 3306
+    mysql_user: str = "root"
+    mysql_password: str = ""
+    mysql_db: str = "thuyetminh"
     redis_url: str = "redis://localhost:6379/0"
     jwt_secret: str = _DEV_DEFAULT
     refresh_token_secret: str = _DEV_DEFAULT

@@ -76,5 +76,5 @@ async def health():
 
 @app.get("/health/ready")
 async def ready():
-    await get_db().command("ping")
+    await get_db().ping()
     return {"status": "ready", "redis": await cache.redis_ok(), "routers": 9}

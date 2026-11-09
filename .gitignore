@@ -3,3 +3,6 @@ node_modules/
 dist/
 __pycache__/
 backend/app/static/audio/
+
+# bản sao lưu DB cục bộ
+backups/

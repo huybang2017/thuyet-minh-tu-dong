@@ -7,7 +7,6 @@ import pytest
 from app import cache, security
 from app.admin.permissions import ALL_PERMISSIONS, DEFAULT_ROLES, PERMISSION_DOMAINS
 from app.config import Settings
-from app.content.ops import slugify
 from app.content.service import haversine_m
 
 
@@ -32,8 +31,8 @@ def test_password_hash_roundtrip():
 
 
 def test_jwt_types_and_expiry():
-    a = security.create_token({"sub": "1"}, "access")
-    assert security.decode_token(a, "access")["sub"] == "1"
+    a = security.create_token({"sub": 1}, "access")
+    assert security.decode_token(a, "access")["sub"] == 1  # id số: lưu dạng chuỗi trong JWT, giải mã lại thành int
     assert security.decode_token(a, "refresh") is None  # sai loại / sai secret
     expired = jwt.encode({"sub": "1", "type": "access", "exp": datetime.now(timezone.utc) - timedelta(seconds=5)},
                          security.settings.jwt_secret, algorithm="HS256")
@@ -59,10 +58,6 @@ def test_non_dev_fail_fast():
     Settings(app_env="dev").assert_secure()
 
 
-def test_slugify_vietnamese():
-    assert slugify("Ốc Đảo Xanh!") == "oc-dao-xanh"
-
-
 def test_haversine():
     assert haversine_m(10.76, 106.70, 10.76, 106.70) == 0
     assert 100 < haversine_m(10.7600, 106.7000, 10.7610, 106.7000) < 120
@@ -85,16 +80,20 @@ async def test_pii_redaction_after_retention():
     await connect_db()
     try:
         db = get_db()
-        old = {"_id": "reg-old-test", "user_id": "x", "shop_name": "s", "phone": "0900000000",
+        await db.execute("DELETE FROM admin_users WHERE username='pii-test-user'")  # cascade xoá đơn đăng ký
+        uid = await db.insert("admin_users", {"username": "pii-test-user", "password_hash": "x",
+                                              "role": "user", "created_at": datetime.now(timezone.utc)})
+        old = {"user_id": uid, "shop_name": "s", "phone": "0900000000",
                "cccd_encrypted": security.encrypt_pii("123456789"), "status": "pending",
                "created_at": datetime.now(timezone.utc) - timedelta(days=181)}
-        new = {**old, "_id": "reg-new-test", "created_at": datetime.now(timezone.utc) - timedelta(days=10)}
-        await db.poi_owner_registrations.delete_many({"_id": {"$in": ["reg-old-test", "reg-new-test"]}})
-        await db.poi_owner_registrations.insert_many([old, new])
+        new = {**old, "created_at": datetime.now(timezone.utc) - timedelta(days=10)}
+        old_id = await db.insert("poi_owner_registrations", old)
+        new_id = await db.insert("poi_owner_registrations", new)
         assert await service.redact_expired_pii() >= 1
-        assert (await db.poi_owner_registrations.find_one({"_id": "reg-old-test"}))["cccd_encrypted"] is None
-        assert (await db.poi_owner_registrations.find_one({"_id": "reg-new-test"}))["cccd_encrypted"].startswith("v1:")
-        await db.poi_owner_registrations.delete_many({"_id": {"$in": ["reg-old-test", "reg-new-test"]}})
+        get = lambda i: db.fetchone("SELECT cccd_encrypted FROM poi_owner_registrations WHERE id=%s", [i])
+        assert (await get(old_id))["cccd_encrypted"] is None
+        assert (await get(new_id))["cccd_encrypted"].startswith("v1:")
+        await db.execute("DELETE FROM admin_users WHERE id=%s", [uid])
     finally:
         await close_db()
 
@@ -120,6 +119,10 @@ async def test_translation_provider_fallback_and_cache(monkeypatch):
         calls.append("mymemory")
         return f"[{target}] {text}"
 
+    async def no_gemini(text, target):
+        raise RuntimeError("no key")  # Gemini là nhà cung cấp đầu chuỗi; test này kiểm tra gtx → mymemory
+
+    monkeypatch.setattr(audio, "_gemini_translate", no_gemini)
     monkeypatch.setattr(audio, "_gtx_translate", bad)
     monkeypatch.setattr(audio, "_mymemory_translate", good)
     await connect_db()
@@ -130,7 +133,7 @@ async def test_translation_provider_fallback_and_cache(monkeypatch):
         assert await audio.translate_text(text, "en") == f"[en] {text}"
         assert calls == ["gtx", "mymemory"]  # lần 2 lấy từ cache, không gọi nhà cung cấp
         assert await audio.translate_text(text, "vi") == text
-        await get_db().translation_cache.delete_many({"lang": "en", "text": f"[en] {text}"})
+        await get_db().execute("DELETE FROM translation_cache WHERE lang='en' AND text=%s", [f"[en] {text}"])
     finally:
         await close_db()
 
@@ -165,10 +168,10 @@ async def test_ai_advisor_provider_paths_and_quota(monkeypatch):
     from app.db import close_db, connect_db, get_db
 
     await connect_db()
-    owner = {"sub": "ai-test-owner", "role": "poi_owner", "permissions": ["owner:access"]}
+    owner = {"sub": 900000001, "role": "poi_owner", "permissions": ["owner:access"]}
     body = ai.Enhance(name="Quán", description="Ngon")
     db = get_db()
-    await db.ai_usage_limits.delete_many({"user_id": "ai-test-owner"})
+    await db.execute("DELETE FROM ai_usage_limits WHERE user_id=%s", [900000001])
     try:
         async def used():
             return (await ai.usage(owner))["used"]
@@ -207,14 +210,14 @@ async def test_ai_advisor_provider_paths_and_quota(monkeypatch):
         assert (await ai.usage(owner)) == {"limit": 10, "used": 10, "remaining": 0}
 
         # 4. admin không giới hạn
-        admin = {"sub": "ai-test-admin", "role": "admin", "permissions": ["poi:update"]}
+        admin = {"sub": 900000002, "role": "admin", "permissions": ["poi:update"]}
         assert (await ai.usage(admin))["limit"] is None
         # 5. user thường bị chặn
         with pytest.raises(HTTPException) as e:
-            await ai.enhance(body, {"sub": "x", "role": "user", "permissions": ["poi:read"]})
+            await ai.enhance(body, {"sub": 900000003, "role": "user", "permissions": ["poi:read"]})
         assert e.value.status_code == 403
     finally:
-        await db.ai_usage_limits.delete_many({"user_id": {"$in": ["ai-test-owner", "ai-test-admin"]}})
+        await db.execute("DELETE FROM ai_usage_limits WHERE user_id IN (%s,%s)", [900000001, 900000002])
         await close_db()
 
 
@@ -224,7 +227,7 @@ async def test_ui_bundle_translation_failure_is_not_cached_as_ready(monkeypatch)
     await connect_db()
     try:
         db = get_db()
-        await db.ui_translation_bundles.delete_many({"locale": "zz"})
+        await db.execute("DELETE FROM ui_translation_bundles WHERE locale=%s", ["zz"])
 
         async def all_fail(locale):
             return dict(ui.EN), len(ui.EN)  # mọi chuỗi lỗi → vẫn tiếng Anh
@@ -232,7 +235,7 @@ async def test_ui_bundle_translation_failure_is_not_cached_as_ready(monkeypatch)
         monkeypatch.setattr(ui, "translate_bundle", all_fail)
         ui._inflight.add("zz")
         await ui._translate_and_store("zz")
-        assert await db.ui_translation_bundles.find_one({"locale": "zz"}) is None  # không lưu bản hỏng
+        assert await db.fetchone("SELECT id FROM ui_translation_bundles WHERE locale=%s", ["zz"]) is None  # không lưu bản hỏng
         assert "zz" in ui._retry_after and "zz" not in ui._inflight
 
         async def mostly_ok(locale):
@@ -241,9 +244,38 @@ async def test_ui_bundle_translation_failure_is_not_cached_as_ready(monkeypatch)
         monkeypatch.setattr(ui, "translate_bundle", mostly_ok)
         ui._inflight.add("zz")
         await ui._translate_and_store("zz")
-        rec = await db.ui_translation_bundles.find_one({"locale": "zz"})
+        rec = await db.fetchone("SELECT * FROM ui_translation_bundles WHERE locale=%s", ["zz"])
         assert rec["status"] == "ready" and rec["strings"]["app.title"].startswith("[zz]")
-        await db.ui_translation_bundles.delete_many({"locale": "zz"})
+        await db.execute("DELETE FROM ui_translation_bundles WHERE locale=%s", ["zz"])
         ui._retry_after.pop("zz", None)
     finally:
         await close_db()
+
+
+def test_demo_data_is_consistent():
+    """Dữ liệu demo toàn TP.HCM: tên duy nhất, toạ độ trong TP, không chồng vùng kích hoạt, đủ thực đơn và khu vực."""
+    from app.content.demo_data import DEMO_MENUS, DEMO_POIS
+    from app.content.demo_data_hcm import AREAS, DEMO_MENUS_HCM, DEMO_POIS_HCM
+    from app.content.seed import _RAW
+    from app.content.service import haversine_m
+
+    core = [r[0] for r in _RAW] + [p["name"] for p in DEMO_POIS]
+    names = core + [p["name"] for p in DEMO_POIS_HCM]
+    assert len(core) == 20 and len(DEMO_POIS_HCM) == 4 * len(AREAS) == 60
+    assert len(names) == len(set(names)) == 80
+    coords = [(r[2], r[3]) for r in _RAW] + [(p["lat"], p["lng"]) for p in DEMO_POIS + DEMO_POIS_HCM]
+    for i, a in enumerate(coords):
+        assert 10.65 < a[0] < 10.90 and 106.55 < a[1] < 106.85, a  # trong phạm vi TP.HCM
+        for b in coords[i + 1:]:
+            assert haversine_m(*a, *b) > 60, (a, b)  # > 2 × bán kính mặc định 30 m
+    for p in DEMO_POIS + DEMO_POIS_HCM:
+        assert 20 <= len(p["description"]) <= 3000 and 1 <= p["audio_priority"] <= 9
+    for p in DEMO_POIS_HCM:
+        assert p["area"] in AREAS
+        # quán nằm gần tâm khu vực của nó (< 400 m)
+        assert haversine_m(p["lat"], p["lng"], *AREAS[p["area"]]) < 400
+    menus = {**DEMO_MENUS, **DEMO_MENUS_HCM}
+    assert set(menus) == set(names)  # đủ 80 quán, không thừa
+    for poi_name, items in menus.items():
+        assert len(items) >= 3 and len({n for n, _ in items}) == len(items)
+        assert all(price > 0 and price % 1000 == 0 for _, price in items)

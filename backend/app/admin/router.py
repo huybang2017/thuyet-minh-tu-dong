@@ -27,6 +27,7 @@ class PoiIn(BaseModel):
     trigger_radius: int | None = Field(default=None, ge=5, le=500)
     audio_priority: int | None = Field(default=None, ge=1, le=9)
     address: str | None = None
+    area: str | None = Field(default=None, max_length=60)
     images: list[str] | None = None
 
 
@@ -38,6 +39,7 @@ class PoiPatch(BaseModel):
     trigger_radius: int | None = Field(default=None, ge=5, le=500)
     audio_priority: int | None = Field(default=None, ge=1, le=9)
     address: str | None = None
+    area: str | None = Field(default=None, max_length=60)
     images: list[str] | None = None
 
 
@@ -46,7 +48,7 @@ class Toggle(BaseModel):
 
 
 class MenuIn(BaseModel):
-    poi_id: str
+    poi_id: int
     name: str = Field(min_length=1, max_length=120)
     price: float = Field(ge=0)
     description: str | None = None
@@ -97,7 +99,7 @@ def _check_perms(perms: list[str]):
 # ---------- POI ----------
 @router.get("/pois")
 async def list_pois(_=Depends(require_permission("poi:read"))):
-    docs = await get_db().poi.find({}).sort("updated_at", -1).to_list(1000)
+    docs = await get_db().fetchall("SELECT * FROM poi WHERE deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1000")
     return {"items": [{**public_poi(d), "owner_id": d.get("owner_id"), "activation_requested": d.get("activation_requested", False)} for d in docs]}
 
 
@@ -109,7 +111,7 @@ async def create_poi(body: PoiIn, user=Depends(require_permission("poi:create"))
 
 
 @router.put("/pois/{pid}")
-async def update_poi(pid: str, body: PoiPatch, user=Depends(require_permission("poi:update"))):
+async def update_poi(pid: int, body: PoiPatch, user=Depends(require_permission("poi:update"))):
     doc = await ops.update_poi(pid, body.model_dump(exclude_none=True))
     if not doc:
         raise HTTPException(404, "POI không tồn tại")
@@ -118,7 +120,7 @@ async def update_poi(pid: str, body: PoiPatch, user=Depends(require_permission("
 
 
 @router.delete("/pois/{pid}")
-async def delete_poi(pid: str, user=Depends(require_permission("poi:delete"))):
+async def delete_poi(pid: int, user=Depends(require_permission("poi:delete"))):
     if not await ops.delete_poi(pid):
         raise HTTPException(404, "POI không tồn tại")
     await service.audit(user, "poi.delete", pid)
@@ -126,7 +128,7 @@ async def delete_poi(pid: str, user=Depends(require_permission("poi:delete"))):
 
 
 @router.post("/pois/{pid}/toggle")
-async def toggle_poi(pid: str, body: Toggle, user=Depends(require_permission("poi:toggle"))):
+async def toggle_poi(pid: int, body: Toggle, user=Depends(require_permission("poi:toggle"))):
     doc = await ops.toggle_poi(pid, body.active)
     if not doc:
         raise HTTPException(404, "POI không tồn tại")
@@ -135,11 +137,12 @@ async def toggle_poi(pid: str, body: Toggle, user=Depends(require_permission("po
 
 
 @router.post("/pois/{pid}/regenerate-audio", status_code=202)
-async def regenerate(pid: str, user=Depends(require_permission("poi:update"))):
-    if not await get_db().poi.find_one({"_id": pid}):
+async def regenerate(pid: int, user=Depends(require_permission("poi:update"))):
+    db = get_db()
+    if not await db.fetchone("SELECT id FROM poi WHERE id=%s AND deleted_at IS NULL", [pid]):
         raise HTTPException(404, "POI không tồn tại")
-    await get_db().poi_localizations.delete_many({"poi_id": pid})
-    await get_db().poi.update_one({"_id": pid}, {"$set": {"audio_status": "processing"}})
+    await db.execute("DELETE FROM poi_localizations WHERE poi_id=%s", [pid])
+    await db.update("poi", pid, {"audio_status": "processing"})
     t = task_manager.enqueue(pid)
     await service.audit(user, "poi.regenerate_audio", pid)
     return task_manager.snapshot(t)
@@ -147,35 +150,37 @@ async def regenerate(pid: str, user=Depends(require_permission("poi:update"))):
 
 # ---------- Menu ----------
 @router.get("/menus")
-async def list_menus(poi_id: str | None = None, _=Depends(require_permission("menu:read"))):
-    q = {"poi_id": poi_id} if poi_id else {}
-    return {"items": [ser(d) for d in await get_db().menu_items.find(q).to_list(500)]}
+async def list_menus(poi_id: int | None = None, _=Depends(require_permission("menu:read"))):
+    db = get_db()
+    rows = (await db.fetchall("SELECT * FROM menu_items WHERE poi_id=%s AND deleted_at IS NULL LIMIT 500", [poi_id]) if poi_id
+            else await db.fetchall("SELECT * FROM menu_items WHERE deleted_at IS NULL LIMIT 500"))
+    return {"items": [ser(d) for d in rows]}
 
 
 @router.post("/menus", status_code=201)
 async def create_menu(body: MenuIn, user=Depends(require_permission("menu:create"))):
-    if not await get_db().poi.find_one({"_id": body.poi_id}, {"_id": 1}):
+    if not await get_db().fetchone("SELECT id FROM poi WHERE id=%s AND deleted_at IS NULL", [body.poi_id]):
         raise HTTPException(404, "POI không tồn tại")
-    doc = {"_id": service.new_id(), **body.model_dump(), "created_at": service.now()}
-    await get_db().menu_items.insert_one(doc)
-    await service.audit(user, "menu.create", doc["_id"], body.name)
+    doc = {**body.model_dump(), "created_at": service.now()}
+    doc["id"] = await get_db().insert("menu_items", doc)
+    await service.audit(user, "menu.create", doc["id"], body.name)
     return ser(doc)
 
 
 @router.put("/menus/{mid}")
-async def update_menu(mid: str, body: MenuPatch, user=Depends(require_permission("menu:update"))):
+async def update_menu(mid: int, body: MenuPatch, user=Depends(require_permission("menu:update"))):
     upd = body.model_dump(exclude_none=True)
-    res = await get_db().menu_items.update_one({"_id": mid}, {"$set": upd})
-    if not res.matched_count:
+    if not await get_db().fetchone("SELECT id FROM menu_items WHERE id=%s AND deleted_at IS NULL", [mid]):
         raise HTTPException(404, "Món không tồn tại")
+    await get_db().update("menu_items", mid, upd)
     await service.audit(user, "menu.update", mid)
-    return ser(await get_db().menu_items.find_one({"_id": mid}))
+    return ser(await get_db().fetchone("SELECT * FROM menu_items WHERE id=%s", [mid]))
 
 
 @router.delete("/menus/{mid}")
-async def delete_menu(mid: str, user=Depends(require_permission("menu:delete"))):
-    res = await get_db().menu_items.delete_one({"_id": mid})
-    if not res.deleted_count:
+async def delete_menu(mid: int, user=Depends(require_permission("menu:delete"))):
+    if not await get_db().execute("UPDATE menu_items SET deleted_at=%s WHERE id=%s AND deleted_at IS NULL",
+                                  [service.now(), mid]):
         raise HTTPException(404, "Món không tồn tại")
     await service.audit(user, "menu.delete", mid)
     return {"ok": True}
@@ -184,39 +189,39 @@ async def delete_menu(mid: str, user=Depends(require_permission("menu:delete")))
 # ---------- Users ----------
 @router.get("/users")
 async def list_users(_=Depends(require_permission("user:read"))):
-    return {"items": [service.public_user(u) for u in await get_db().admin_users.find({}).to_list(1000)]}
+    return {"items": [service.public_user(u) for u in await get_db().fetchall("SELECT * FROM admin_users WHERE deleted_at IS NULL LIMIT 1000")]}
 
 
 @router.post("/users", status_code=201)
 async def create_user(body: UserIn, user=Depends(require_permission("user:create"))):
     db = get_db()
-    role = await db.roles.find_one({"_id": body.role})
+    role = await db.fetchone("SELECT name FROM roles WHERE name=%s AND deleted_at IS NULL", [body.role])
     if not role:
         raise HTTPException(422, "Role không tồn tại")
-    if role["_id"] == "super_admin" and "super_admin" != user["role"]:
+    if role["name"] == "super_admin" and "super_admin" != user["role"]:
         raise HTTPException(403, "Chỉ super_admin mới tạo được super_admin")
-    if await db.admin_users.find_one({"username": body.username}):
+    if await db.fetchone("SELECT id FROM admin_users WHERE username=%s", [body.username]):
         raise HTTPException(409, "Tên đăng nhập đã tồn tại")
-    doc = {"_id": service.new_id(), "username": body.username, "email": body.email or None,
+    doc = {"username": body.username, "email": body.email or None,
            "password_hash": hash_password(body.password), "role": body.role,
            "display_name": body.display_name, "is_active": True, "is_verified": True,
            "is_poi_owner_verified": body.role == "poi_owner", "created_at": service.now()}
-    await db.admin_users.insert_one(doc)
-    await service.audit(user, "user.create", doc["_id"], body.username)
+    doc["id"] = await db.insert("admin_users", doc)
+    await service.audit(user, "user.create", doc["id"], body.username)
     return service.public_user(doc)
 
 
 @router.put("/users/{uid}")
-async def update_user(uid: str, body: UserPatch, user=Depends(require_permission("user:update"))):
+async def update_user(uid: int, body: UserPatch, user=Depends(require_permission("user:update"))):
     db = get_db()
-    target = await db.admin_users.find_one({"_id": uid})
+    target = await db.fetchone("SELECT * FROM admin_users WHERE id=%s AND deleted_at IS NULL", [uid])
     if not target:
         raise HTTPException(404, "User không tồn tại")
     if (target["role"] == "super_admin" or body.role == "super_admin") and user["role"] != "super_admin":
         raise HTTPException(403, "Chỉ super_admin mới sửa được super_admin")
     upd = {}
     if body.role is not None:
-        if not await db.roles.find_one({"_id": body.role}):
+        if not await db.fetchone("SELECT name FROM roles WHERE name=%s AND deleted_at IS NULL", [body.role]):
             raise HTTPException(422, "Role không tồn tại")
         upd["role"] = body.role
     if body.is_active is not None:
@@ -228,22 +233,22 @@ async def update_user(uid: str, body: UserPatch, user=Depends(require_permission
     if body.password:
         upd["password_hash"] = hash_password(body.password)
     if upd:
-        await db.admin_users.update_one({"_id": uid}, {"$set": upd})
+        await db.update("admin_users", uid, upd)
     await service.audit(user, "user.update", uid, ",".join(k for k in upd if k != "password_hash"))
-    return service.public_user(await db.admin_users.find_one({"_id": uid}))
+    return service.public_user(await db.fetchone("SELECT * FROM admin_users WHERE id=%s", [uid]))
 
 
 @router.delete("/users/{uid}")
-async def delete_user(uid: str, user=Depends(require_permission("user:delete"))):
+async def delete_user(uid: int, user=Depends(require_permission("user:delete"))):
     db = get_db()
-    target = await db.admin_users.find_one({"_id": uid})
+    target = await db.fetchone("SELECT * FROM admin_users WHERE id=%s AND deleted_at IS NULL", [uid])
     if not target:
         raise HTTPException(404, "User không tồn tại")
     if uid == user["sub"]:
         raise HTTPException(400, "Không thể tự xoá chính mình")
     if target["role"] == "super_admin" and user["role"] != "super_admin":
         raise HTTPException(403, "Chỉ super_admin mới xoá được super_admin")
-    await db.admin_users.delete_one({"_id": uid})
+    await db.execute("UPDATE admin_users SET deleted_at=%s, is_active=0 WHERE id=%s", [service.now(), uid])
     await service.audit(user, "user.delete", uid, target["username"])
     return {"ok": True}
 
@@ -256,16 +261,21 @@ async def permissions(_=Depends(require_permission("role:read"))):
 
 @router.get("/roles")
 async def list_roles(_=Depends(require_permission("role:read"))):
-    return {"items": [ser(r) | {"name": r["_id"]} for r in await get_db().roles.find({}).sort("priority", 1).to_list(100)]}
+    return {"items": [ser(r) for r in await get_db().fetchall("SELECT * FROM roles WHERE deleted_at IS NULL ORDER BY priority LIMIT 100")]}
 
 
 @router.post("/roles", status_code=201)
 async def create_role(body: RoleIn, user=Depends(require_permission("role:create"))):
     _check_perms(body.permissions)
-    if await get_db().roles.find_one({"_id": body.name}):
+    old = await get_db().fetchone("SELECT name, deleted_at FROM roles WHERE name=%s", [body.name])
+    if old and not old["deleted_at"]:
         raise HTTPException(409, "Role đã tồn tại")
-    await get_db().roles.insert_one({"_id": body.name, "name": body.name, "priority": body.priority,
-                                     "permissions": body.permissions, "is_default": False})
+    if old:  # tên role (khoá chính) đang bị xoá mềm → dùng lại bản ghi đó
+        await get_db().update("roles", body.name, {"priority": body.priority, "permissions": body.permissions,
+                                                   "is_default": False, "deleted_at": None}, key="name")
+    else:
+        await get_db().insert("roles", {"name": body.name, "priority": body.priority,
+                                        "permissions": body.permissions, "is_default": False})
     await service.audit(user, "role.create", body.name)
     return {"name": body.name, "priority": body.priority, "permissions": body.permissions}
 
@@ -277,24 +287,24 @@ async def update_role(name: str, body: RolePatch, user=Depends(require_permissio
     upd = body.model_dump(exclude_none=True)
     if "permissions" in upd:
         _check_perms(upd["permissions"])
-    res = await get_db().roles.update_one({"_id": name}, {"$set": upd})
-    if not res.matched_count:
+    if not await get_db().fetchone("SELECT name FROM roles WHERE name=%s AND deleted_at IS NULL", [name]):
         raise HTTPException(404, "Role không tồn tại")
+    await get_db().update("roles", name, upd, key="name")
     await service.audit(user, "role.update", name)
-    return ser(await get_db().roles.find_one({"_id": name})) | {"name": name}
+    return ser(await get_db().fetchone("SELECT * FROM roles WHERE name=%s", [name]))
 
 
 @router.delete("/roles/{name}")
 async def delete_role(name: str, user=Depends(require_permission("role:delete"))):
     db = get_db()
-    r = await db.roles.find_one({"_id": name})
+    r = await db.fetchone("SELECT * FROM roles WHERE name=%s AND deleted_at IS NULL", [name])
     if not r:
         raise HTTPException(404, "Role không tồn tại")
     if r.get("is_default"):
         raise HTTPException(400, "Không xoá được role mặc định")
-    if await db.admin_users.find_one({"role": name}):
+    if await db.fetchone("SELECT id FROM admin_users WHERE role=%s AND deleted_at IS NULL LIMIT 1", [name]):
         raise HTTPException(409, "Role đang được gán cho user")
-    await db.roles.delete_one({"_id": name})
+    await db.execute("UPDATE roles SET deleted_at=%s WHERE name=%s", [service.now(), name])
     await service.audit(user, "role.delete", name)
     return {"ok": True}
 
@@ -303,29 +313,29 @@ async def delete_role(name: str, user=Depends(require_permission("role:delete"))
 @router.get("/registrations")
 async def list_registrations(status: str | None = None, _=Depends(require_permission("poi:approve"))):
     db = get_db()
-    q = {"status": status} if status else {}
+    sql = ("SELECT r.*, u.username FROM poi_owner_registrations r LEFT JOIN admin_users u ON u.id=r.user_id "
+           + ("WHERE r.status=%s " if status else "") + "ORDER BY r.created_at DESC LIMIT 500")
     out = []
-    for r in await db.poi_owner_registrations.find(q).sort("created_at", -1).to_list(500):
-        u = await db.admin_users.find_one({"_id": r["user_id"]})
-        out.append({"id": r["_id"], "user_id": r["user_id"], "username": u["username"] if u else None,
+    for r in await db.fetchall(sql, [status] if status else []):
+        out.append({"id": r["id"], "user_id": r["user_id"], "username": r["username"],
                     "shop_name": r["shop_name"], "phone": r["phone"], "status": r["status"],
                     "admin_note": r.get("admin_note"), "has_cccd": bool(r.get("cccd_encrypted")),
                     "created_at": r["created_at"].isoformat()})
     return {"items": out}
 
 
-async def _review_registration(rid: str, approve: bool, body: Review, user: dict):
+async def _review_registration(rid: int, approve: bool, body: Review, user: dict):
     db = get_db()
-    reg = await db.poi_owner_registrations.find_one({"_id": rid})
+    reg = await db.fetchone("SELECT * FROM poi_owner_registrations WHERE id=%s", [rid])
     if not reg:
         raise HTTPException(404, "Đơn không tồn tại")
     if reg["status"] != "pending":
         raise HTTPException(409, "Đơn đã được xử lý")
     status = "approved" if approve else "rejected"
-    await db.poi_owner_registrations.update_one({"_id": rid}, {"$set": {
-        "status": status, "admin_note": body.admin_note, "reviewed_by": user["sub"], "reviewed_at": service.now()}})
+    await db.update("poi_owner_registrations", rid, {
+        "status": status, "admin_note": body.admin_note, "reviewed_by": user["sub"], "reviewed_at": service.now()})
     if approve:
-        await db.admin_users.update_one({"_id": reg["user_id"]}, {"$set": {"is_verified": True, "is_poi_owner_verified": True}})
+        await db.update("admin_users", reg["user_id"], {"is_verified": True, "is_poi_owner_verified": True})
     await service.notify_owner(
         reg["user_id"], "Đơn đăng ký chủ quán " + ("đã được duyệt" if approve else "bị từ chối"),
         body.admin_note or ("Chào mừng bạn! Hãy đăng nhập lại để vào cổng chủ quán." if approve else "Vui lòng liên hệ quản trị viên."))
@@ -334,25 +344,27 @@ async def _review_registration(rid: str, approve: bool, body: Review, user: dict
 
 
 @router.post("/registrations/{rid}/approve")
-async def approve_registration(rid: str, body: Review = Review(), user=Depends(require_permission("poi:approve"))):
+async def approve_registration(rid: int, body: Review = Review(), user=Depends(require_permission("poi:approve"))):
     return await _review_registration(rid, True, body, user)
 
 
 @router.post("/registrations/{rid}/reject")
-async def reject_registration(rid: str, body: Review = Review(), user=Depends(require_permission("poi:approve"))):
+async def reject_registration(rid: int, body: Review = Review(), user=Depends(require_permission("poi:approve"))):
     return await _review_registration(rid, False, body, user)
 
 
 # ---------- Owner submissions ----------
 @router.get("/submissions")
 async def list_submissions(status: str | None = None, _=Depends(require_permission("poi:approve"))):
-    q = {"status": status} if status else {}
-    return {"items": [ser(d) for d in await get_db().poi_submissions.find(q).sort("created_at", -1).to_list(500)]}
-
-
-async def _review_submission(sid: str, approve: bool, body: Review, user: dict):
     db = get_db()
-    sub = await db.poi_submissions.find_one({"_id": sid})
+    rows = (await db.fetchall("SELECT * FROM poi_submissions WHERE status=%s ORDER BY created_at DESC LIMIT 500", [status]) if status
+            else await db.fetchall("SELECT * FROM poi_submissions ORDER BY created_at DESC LIMIT 500"))
+    return {"items": [ser(d) for d in rows]}
+
+
+async def _review_submission(sid: int, approve: bool, body: Review, user: dict):
+    db = get_db()
+    sub = await db.fetchone("SELECT * FROM poi_submissions WHERE id=%s", [sid])
     if not sub:
         raise HTTPException(404, "Submission không tồn tại")
     if sub["status"] != "pending":
@@ -360,13 +372,13 @@ async def _review_submission(sid: str, approve: bool, body: Review, user: dict):
     if approve:
         if sub["type"] == "create":
             poi = await ops.create_poi(sub["data"], owner_id=sub["owner_id"])
-            await db.poi_submissions.update_one({"_id": sid}, {"$set": {"poi_id": poi["_id"]}})
+            await db.update("poi_submissions", sid, {"poi_id": poi["id"]})
         else:
             if not await ops.update_poi(sub["poi_id"], sub["data"]):
                 raise HTTPException(409, "POI gốc không còn tồn tại")
     status = "approved" if approve else "rejected"
-    await db.poi_submissions.update_one({"_id": sid}, {"$set": {
-        "status": status, "admin_note": body.admin_note, "reviewed_by": user["sub"], "reviewed_at": service.now()}})
+    await db.update("poi_submissions", sid, {
+        "status": status, "admin_note": body.admin_note, "reviewed_by": user["sub"], "reviewed_at": service.now()})
     await service.notify_owner(sub["owner_id"], f"Bài gửi \"{sub['data'].get('name', sub.get('poi_id'))}\" " + ("đã được duyệt" if approve else "bị từ chối"),
                                body.admin_note or "")
     await service.audit(user, f"submission.{status}", sid)
@@ -374,19 +386,19 @@ async def _review_submission(sid: str, approve: bool, body: Review, user: dict):
 
 
 @router.post("/submissions/{sid}/approve")
-async def approve_submission(sid: str, body: Review = Review(), user=Depends(require_permission("poi:approve"))):
+async def approve_submission(sid: int, body: Review = Review(), user=Depends(require_permission("poi:approve"))):
     return await _review_submission(sid, True, body, user)
 
 
 @router.post("/submissions/{sid}/reject")
-async def reject_submission(sid: str, body: Review = Review(), user=Depends(require_permission("poi:approve"))):
+async def reject_submission(sid: int, body: Review = Review(), user=Depends(require_permission("poi:approve"))):
     return await _review_submission(sid, False, body, user)
 
 
 # ---------- Audit ----------
 @router.get("/audit-logs")
 async def audit_logs(limit: int = Query(100, le=500), _=Depends(require_permission("audit:read"))):
-    docs = await get_db().audit_logs.find({}).sort("timestamp", -1).limit(limit).to_list(limit)
+    docs = await get_db().fetchall("SELECT * FROM audit_logs ORDER BY `timestamp` DESC LIMIT %s", [limit])
     return {"items": [ser(d) for d in docs]}
 
 
@@ -397,7 +409,7 @@ async def audio_tasks(_=Depends(require_permission("poi:read"))):
 
 
 @router.post("/audio-tasks/{tid}/{action}")
-async def audio_task_control(tid: str, action: str, user=Depends(require_permission("poi:update"))):
+async def audio_task_control(tid: int, action: str, user=Depends(require_permission("poi:update"))):
     if action not in ("pause", "resume", "cancel"):
         raise HTTPException(400, "Hành động không hợp lệ")
     t = task_manager.control(tid, action)

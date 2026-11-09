@@ -4,7 +4,7 @@ import { Field, Notice, Table, Tabs, useAction, useList } from '../components/Co
 import { A, api } from '../services/api'
 import { useAuth } from '../stores/authStore'
 
-const POI_EMPTY = { name: '', description: '', lat: '10.7608', lng: '106.7042', trigger_radius: '30', audio_priority: '3' }
+const POI_EMPTY = { name: '', description: '', lat: '10.7608', lng: '106.7042', trigger_radius: '30', audio_priority: '3', area: '' }
 const num = (v) => (v === '' || v == null ? undefined : Number(v))
 
 function PoiForm({ initial, onSubmit, onCancel }) {
@@ -13,7 +13,7 @@ function PoiForm({ initial, onSubmit, onCancel }) {
   return (
     <form className="inline-form" onSubmit={(e) => { e.preventDefault(); onSubmit({
       name: f.name, description: f.description, lat: num(f.lat), lng: num(f.lng),
-      trigger_radius: num(f.trigger_radius), audio_priority: num(f.audio_priority) }) }}>
+      trigger_radius: num(f.trigger_radius), audio_priority: num(f.audio_priority), area: f.area || undefined }) }}>
       <Field label="Tên"><input value={f.name} onChange={set('name')} required /></Field>
       <Field label="Mô tả (tiếng Việt)"><textarea value={f.description} onChange={set('description')} required rows={3} /></Field>
       <div className="row">
@@ -21,6 +21,7 @@ function PoiForm({ initial, onSubmit, onCancel }) {
         <Field label="Lng"><input value={f.lng} onChange={set('lng')} required /></Field>
         <Field label="Bán kính (m)"><input value={f.trigger_radius} onChange={set('trigger_radius')} /></Field>
         <Field label="Ưu tiên audio (1=cao)"><input value={f.audio_priority} onChange={set('audio_priority')} /></Field>
+        <Field label="Khu vực"><input value={f.area || ''} onChange={set('area')} placeholder="vd: Bến Thành" /></Field>
       </div>
       <button className="btn" type="submit">Lưu</button> {onCancel && <button type="button" className="btn ghost" onClick={onCancel}>Huỷ</button>}
     </form>
@@ -43,7 +44,7 @@ function PoiTab() {
         onCancel={() => setEditing(null)}
         onSubmit={(b) => act(async () => { await api(`${A}/pois/${editing.id}`, { method: 'PUT', body: b }); setEditing(null) }, 'Đã cập nhật')} />}
       <Table rows={items} cols={[
-        { h: 'Tên', k: 'name' },
+        { h: 'Tên', k: 'name' }, { h: 'Khu vực', k: 'area' },
         { h: 'Trạng thái', render: (p) => <span className={p.is_active ? 'badge on' : 'badge off'}>{p.is_active ? 'Public' : p.activation_requested ? 'Chờ audio' : 'Ẩn'}</span> },
         { h: 'Audio', k: 'audio_status' },
         { h: 'Thao tác', render: (p) => (
@@ -60,6 +61,7 @@ function PoiTab() {
 
 function AudioTab() {
   const [tasks, setTasks] = useState([])
+  const pois = useList(`${A}/pois`)
   const { msg, err, run } = useAction()
   useEffect(() => {
     const es = new EventSource(`${A}/audio-tasks-stream`, { withCredentials: true })
@@ -72,7 +74,7 @@ function AudioTab() {
     <div><Notice msg={msg} err={err} />
       <p className="muted">Tiến độ cập nhật real-time qua SSE.</p>
       <Table rows={tasks} cols={[
-        { h: 'POI', k: 'poi_id' }, { h: 'Trạng thái', k: 'status' },
+        { h: 'POI', render: (t) => pois.items.find((p) => p.id === t.poi_id)?.name ?? t.poi_id }, { h: 'Trạng thái', k: 'status' },
         { h: 'Tiến độ', render: (t) => <span><progress max={t.total} value={t.done} /> {t.done}/{t.total}</span> },
         { h: 'Lỗi', render: (t) => t.error || '' },
         { h: '', render: (t) => ['running', 'paused', 'queued'].includes(t.status) && (
@@ -100,7 +102,7 @@ function MenuTab() {
         <Field label="Tên món"><input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required /></Field>
         <Field label="Giá (đ)"><input value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} required inputMode="numeric" /></Field>
         <button className="btn" type="submit">Thêm</button></form>}
-      <Table rows={items} cols={[{ h: 'Quán', k: 'poi_id' }, { h: 'Món', k: 'name' }, { h: 'Giá', k: 'price' },
+      <Table rows={items} cols={[{ h: 'Quán', render: (m) => pois.items.find((p) => p.id === m.poi_id)?.name ?? m.poi_id }, { h: 'Món', k: 'name' }, { h: 'Giá', k: 'price' },
         { h: '', render: (m) => can('menu:delete') && <button className="danger" onClick={() => act(() => api(`${A}/menus/${m.id}`, { method: 'DELETE' }), 'Đã xoá')}>Xoá</button> }]} />
     </div>
   )
@@ -200,7 +202,7 @@ function AnalyticsTab() {
         <div><b>{o.raw?.total ?? 0}</b><span>Điểm vị trí runtime (24h)</span></div>
       </div>}
       <p className="muted">"Online" = số anonymous device đã consent còn trong cửa sổ trượt hiện tại, không phải tổng traffic.</p>
-      <h3>Top POI nghe nhiều</h3><Table rows={(d?.top_pois || []).map((x) => ({ ...x, id: x.poi_id }))} cols={[{ h: 'POI', k: 'poi_id' }, { h: 'Lượt nghe', k: 'plays' }]} />
+      <h3>Top POI nghe nhiều</h3><Table rows={(d?.top_pois || []).map((x) => ({ ...x, id: x.poi_id }))} cols={[{ h: 'POI', render: (x) => x.name ?? x.poi_id }, { h: 'Lượt nghe', k: 'plays' }]} />
       <h3>Vùng hoạt động (ô lưới ~110 m)</h3><Table rows={o.items.map((c, i) => ({ ...c, id: i }))} cols={[{ h: 'Lat', k: 'lat' }, { h: 'Lng', k: 'lng' }, { h: 'Số lần', k: 'count' }]} />
     </div>
   )

@@ -31,9 +31,9 @@ def _allowed(user: dict) -> bool:
     return "owner:access" in p or "poi:update" in p
 
 
-async def _used_today(user_id: str) -> int:
+async def _used_today(user_id: int) -> int:
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    d = await get_db().ai_usage_limits.find_one({"user_id": user_id, "date": today})
+    d = await get_db().fetchone("SELECT `count` FROM ai_usage_limits WHERE user_id=%s AND `date`=%s", [user_id, today])
     return d["count"] if d else 0
 
 
@@ -72,5 +72,5 @@ async def enhance(body: Enhance, user: dict = Depends(get_current_user)):
     except (KeyError, IndexError, ValueError):
         raise HTTPException(502, detail={"code": "provider_bad_response", "message": "Phản hồi Gemini không hợp lệ"})
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    await get_db().ai_usage_limits.update_one({"user_id": user["sub"], "date": today}, {"$inc": {"count": 1}}, upsert=True)
+    await get_db().execute("INSERT INTO ai_usage_limits (user_id, `date`, `count`) VALUES (%s,%s,1) ON DUPLICATE KEY UPDATE `count`=`count`+1", [user["sub"], today])
     return {"description": text}

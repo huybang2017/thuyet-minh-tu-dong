@@ -16,7 +16,7 @@ class Collect(BaseModel):
     device_id: str = Field(min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
     session_id: str | None = Field(default=None, max_length=64)
     event: str
-    poi_id: str | None = Field(default=None, max_length=80)
+    poi_id: int | None = Field(default=None, ge=1)
     lang: str | None = Field(default=None, max_length=8)
 
 
@@ -33,8 +33,8 @@ async def collect(body: Collect, request: Request):
     now = datetime.now(timezone.utc)
     db = get_db()
     await cache.presence_touch(body.device_id)
-    await db.analytics_devices.update_one({"_id": body.device_id}, {"$set": {"last_seen": now}, "$setOnInsert": {"first_seen": now}}, upsert=True)
-    await db.analytics_events.insert_one({"device_id": body.device_id, "session_id": body.session_id, "event": body.event,
+    await db.upsert("analytics_devices", {"device_id": body.device_id, "first_seen": now, "last_seen": now}, ["last_seen"])
+    await db.insert("analytics_events", {"device_id": body.device_id, "session_id": body.session_id, "event": body.event,
                                           "poi_id": body.poi_id, "lang": body.lang, "ts": now})
     return {"ok": True}
 
@@ -43,18 +43,19 @@ async def collect(body: Collect, request: Request):
 async def summary(days: int = 7, _=Depends(require_permission("analytics:view"))):
     db = get_db()
     since = datetime.now(timezone.utc) - timedelta(days=min(days, 90))
-    by_event = {d["_id"]: d["n"] async for d in db.analytics_events.aggregate(
-        [{"$match": {"ts": {"$gte": since}}}, {"$group": {"_id": "$event", "n": {"$sum": 1}}}])}
-    top = [{"poi_id": d["_id"], "plays": d["n"]} async for d in db.analytics_events.aggregate(
-        [{"$match": {"ts": {"$gte": since}, "event": "narration_played", "poi_id": {"$ne": None}}},
-         {"$group": {"_id": "$poi_id", "n": {"$sum": 1}}}, {"$sort": {"n": -1}}, {"$limit": 5}])]
-    by_lang = {d["_id"] or "unknown": d["n"] async for d in db.analytics_events.aggregate(
-        [{"$match": {"ts": {"$gte": since}, "event": "language_changed"}}, {"$group": {"_id": "$lang", "n": {"$sum": 1}}}])}
+    by_event = {d["event"]: d["n"] for d in await db.fetchall(
+        "SELECT event, COUNT(*) AS n FROM analytics_events WHERE ts >= %s GROUP BY event", [since])}
+    top = [{"poi_id": d["poi_id"], "name": d["name"], "plays": d["n"]} for d in await db.fetchall(
+        "SELECT e.poi_id, p.name, COUNT(*) AS n FROM analytics_events e LEFT JOIN poi p ON p.id=e.poi_id "
+        "WHERE e.ts >= %s AND e.event='narration_played' AND e.poi_id IS NOT NULL "
+        "GROUP BY e.poi_id, p.name ORDER BY n DESC LIMIT 5", [since])]
+    by_lang = {(d["lang"] or "unknown"): d["n"] for d in await db.fetchall(
+        "SELECT lang, COUNT(*) AS n FROM analytics_events WHERE ts >= %s AND event='language_changed' GROUP BY lang", [since])}
     return {
         "window_days": days,
         # số anonymous device đã consent còn trong cửa sổ trượt — không phải tổng traffic
         "tracked_online_users": await cache.presence_count(),
-        "devices": await db.analytics_devices.count_documents({"last_seen": {"$gte": since}}),
+        "devices": await db.scalar("SELECT COUNT(*) FROM analytics_devices WHERE last_seen >= %s", [since]),
         "events": by_event, "top_pois": top, "languages": by_lang,
         "redis": await cache.redis_ok(),
     }

@@ -5,7 +5,7 @@ from math import asin, cos, radians, sin, sqrt
 from ..db import get_db
 from .seed import build_seed
 
-_PRIVATE = {"_id", "location", "owner_id", "activation_requested"}
+_PRIVATE = {"_id", "owner_id", "activation_requested", "deleted_at"}
 
 
 def haversine_m(lat1, lng1, lat2, lng2) -> float:
@@ -30,15 +30,15 @@ _public = public_poi
 
 async def seed_if_empty() -> None:
     db = get_db()
-    if await db.poi.estimated_document_count() == 0:
-        await db.poi.insert_many(build_seed())
+    if await db.scalar("SELECT COUNT(*) FROM poi") == 0:
+        await db.insert_many("poi", build_seed())
 
 
 async def dataset_version() -> str:
     db = get_db()
-    latest = await db.poi.find_one({}, sort=[("updated_at", -1)], projection={"updated_at": 1})
-    removed = await db.removed_pois.count_documents({})
-    count = await db.poi.count_documents({})
+    latest = await db.fetchone("SELECT updated_at FROM poi ORDER BY updated_at DESC LIMIT 1")
+    removed = await db.scalar("SELECT COUNT(*) FROM removed_pois")
+    count = await db.scalar("SELECT COUNT(*) FROM poi WHERE deleted_at IS NULL")
     raw = f"{count}:{removed}:{latest['updated_at'].isoformat() if latest else ''}"
     return hashlib.md5(raw.encode()).hexdigest()[:12]
 
@@ -49,16 +49,19 @@ async def load_all(updated_after: datetime | None = None, lang: str = "vi") -> d
 
     db = get_db()
     cursor_now = datetime.now(timezone.utc)
-    removed: list[str] = []
+    removed: list[int] = []
     if updated_after is None:
-        docs = await db.poi.find({"is_active": True}).to_list(length=1000)
+        docs = await db.fetchall("SELECT * FROM poi WHERE is_active=1 AND deleted_at IS NULL LIMIT 1000")
     else:
         changed_ids = await loc.localized_ids_changed_since(lang, updated_after) if lang != "vi" else []
-        q = {"$or": [{"updated_at": {"$gt": updated_after}}, {"_id": {"$in": changed_ids}}]}
-        touched = await db.poi.find(q).to_list(length=1000)
-        docs = [d for d in touched if d.get("is_active")]
-        removed = [d["_id"] for d in touched if not d.get("is_active")]
-        removed += [d["_id"] async for d in db.removed_pois.find({"removed_at": {"$gt": updated_after}})]
+        sql, args = "SELECT * FROM poi WHERE updated_at > %s", [updated_after]
+        if changed_ids:
+            sql += f" OR id IN ({','.join(['%s'] * len(changed_ids))})"
+            args += changed_ids
+        touched = await db.fetchall(sql + " LIMIT 1000", args)
+        docs = [d for d in touched if d.get("is_active") and not d.get("deleted_at")]
+        removed = [d["_id"] for d in touched if not d.get("is_active") or d.get("deleted_at")]
+        removed += [d["id"] for d in await db.fetchall("SELECT id FROM removed_pois WHERE removed_at > %s", [updated_after])]
     return {
         "dataset_version": await dataset_version(),
         "sync_mode": "delta" if updated_after else "full",
@@ -69,21 +72,12 @@ async def load_all(updated_after: datetime | None = None, lang: str = "vi") -> d
 
 
 async def nearby(lat: float, lng: float, radius_m: int, limit: int = 20) -> list[dict]:
-    db = get_db()
-    try:
-        cursor = db.poi.find({
-            "is_active": True,
-            "location": {"$nearSphere": {
-                "$geometry": {"type": "Point", "coordinates": [lng, lat]},
-                "$maxDistance": radius_m,
-            }},
-        }).limit(limit)
-        docs = await cursor.to_list(length=limit)
-    except Exception:
-        # fallback Haversine in-memory
-        all_docs = await db.poi.find({"is_active": True}).to_list(length=1000)
-        docs = sorted(
-            (d for d in all_docs if haversine_m(lat, lng, d["lat"], d["lng"]) <= radius_m),
-            key=lambda d: haversine_m(lat, lng, d["lat"], d["lng"]),
-        )[:limit]
-    return [{**public_poi(d), "distance_m": round(haversine_m(lat, lng, d["lat"], d["lng"]))} for d in docs]
+    """Haversine ngay trong MySQL (không cần spatial index), sắp theo khoảng cách."""
+    rows = await get_db().fetchall(
+        "SELECT *, (2 * 6371000 * ASIN(SQRT(POWER(SIN(RADIANS(lat - %s) / 2), 2) + "
+        "COS(RADIANS(%s)) * COS(RADIANS(lat)) * POWER(SIN(RADIANS(lng - %s) / 2), 2)))) AS dist_m "
+        "FROM poi WHERE is_active=1 AND deleted_at IS NULL HAVING dist_m <= %s ORDER BY dist_m LIMIT %s",
+        [lat, lat, lng, radius_m, limit])
+    for d in rows:
+        d.pop("dist_m", None)
+    return [{**public_poi(d), "distance_m": round(haversine_m(lat, lng, d["lat"], d["lng"]))} for d in rows]

@@ -2,7 +2,7 @@
 
 Ứng dụng web du lịch ẩm thực đường phố (TP.HCM): bản đồ tương tác, thuyết minh âm thanh đa ngôn ngữ tự động khi đi vào vùng quán (geofence).
 
-- Backend: FastAPI + MongoDB + Redis, Edge-TTS, dịch miễn phí (Google gtx → MyMemory → deep-translator)
+- Backend: FastAPI + MySQL 8 + Redis, Edge-TTS, dịch miễn phí (Google gtx → MyMemory → deep-translator)
 - Frontend: React 19 + Vite 7, MapLibre, Turf
 - Cổng quản trị (RBAC), cổng chủ quán, AI Advisor (Gemini), analytics có consent
 - Không có chế độ offline (đã bỏ theo yêu cầu): ứng dụng cần kết nối tới máy chủ
@@ -11,7 +11,7 @@
 
 ```bash
 cp .env.example .env            # dev: không cần sửa gì
-docker compose up -d --build    # mongo + redis + backend (http://localhost:8000)
+docker compose up -d --build    # mysql + redis + backend (http://localhost:8000)
 cd frontend && npm install
 npm run dev                     # http://localhost:5173
 # hoặc bản build:
@@ -29,6 +29,18 @@ MSYS_NO_PATHCONV=1 docker compose exec -T -e PYTHONPATH=/srv backend \
 # frontend (6 test)
 cd frontend && npm test
 ```
+
+## Dữ liệu demo
+
+Có sẵn 8 quán mẫu khi DB trống. Để có đủ bộ demo (80 quán đường phố rải ra 16 khu vực của TP.HCM, mỗi quán có thực đơn kèm giá, giọng đọc 5 ngôn ngữ tạo sẵn), chạy một lần:
+
+```bash
+docker compose exec -T backend python -m app.content.seed_demo
+```
+
+Lệnh này an toàn khi chạy lại (quán/món đã có được bỏ qua, quán từng bị lỗi tạo giọng đọc sẽ được thử lại) và mất vài phút ở lần đầu vì phải dịch và tạo giọng đọc. Nếu cuối lệnh báo có quán lỗi (thường do dịch vụ dịch miễn phí bị giới hạn tạm thời), chỉ cần chạy lại.
+
+Đây là dữ liệu minh hoạ: tên quán là tên chung, mô tả và giá do nhóm soạn, toạ độ chỉ xấp xỉ quanh tâm mỗi khu vực — không phải thông tin xác thực của từng quán ngoài đời. Trên bản đồ, dùng ô **Khu vực** để nhảy nhanh tới từng khu, bấm vào một quán để xem mô tả và thực đơn.
 
 ## Demo geofence
 
