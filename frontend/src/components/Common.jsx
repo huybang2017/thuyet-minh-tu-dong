@@ -46,12 +46,16 @@ export function useList(path, key = 'items') {
   const [items, setItems] = useState([])
   const [error, setError] = useState('')
   const [raw, setRaw] = useState(null)
+  const [loading, setLoading] = useState(false)
   const reload = useCallback(async () => {
-    try { const d = await api(path); setRaw(d); setItems(d[key] || []); setError('') }
-    catch (e) { setError(e.message) }
+    try {
+      setLoading(true); setError('')
+      const d = await api(path); setRaw(d); setItems(d[key] || [])
+    } catch (e) { setError(e.message) }
+    finally { setLoading(false) }
   }, [path, key])
   useEffect(() => { reload() }, [reload])
-  return { items, raw, error, reload }
+  return { items, raw, error, reload, loading }
 }
 
 export function useAction() {
@@ -79,6 +83,17 @@ export function Table({ cols, rows, empty = 'Chưa có dữ liệu' }) {
   )
 }
 
+export function SkeletonTable({ count = 5 }) {
+  return (
+    <div className="tablewrap"><table>
+      <thead><tr>{['Tên','Khu vực','Trạng thái','Audio','Thao tác'].map((h) => <th key={h}>{h}</th>)}</tr></thead>
+      <tbody>{[...Array(count)].map((_, i) => (
+        <tr key={i}><td><span className="skeleton w" /></td><td><span className="skeleton" /></td><td><span className="skeleton" /></td><td><span className="skeleton" /></td><td><span className="skeleton" /></td></tr>
+      ))}</tbody>
+    </table></div>
+  )
+}
+
 export function Field({ label, children }) {
   return <label className="field"><span>{label}</span>{children}</label>
 }
@@ -90,6 +105,45 @@ export function Tabs({ tabs, current, onChange }) {
         <button key={t.id} role="tab" aria-selected={current === t.id} className={current === t.id ? 'tab on' : 'tab'}
           onClick={() => onChange(t.id)}>{t.label}</button>
       ))}
+    </div>
+  )
+}
+
+export function Modal({ open, title, onClose, children }) {
+  if (!open) return null
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <header>
+          <h2>{title}</h2>
+          <button className="close" onClick={onClose} aria-label="Đóng">×</button>
+        </header>
+        <div className="body">{children}</div>
+      </div>
+    </div>
+  )
+}
+
+export function ConfirmModal({ open, title, content, onConfirm, onCancel, confirmLabel = 'Xác nhận', cancelLabel = 'Huỷ' }) {
+  if (!open) return null
+  return (
+    <Modal open={open} title={title} onClose={onCancel}>
+      <div className="body">{content}</div>
+      <div className="footer">
+        <button className="btn ghost" onClick={onCancel}>{cancelLabel}</button>
+        <button className="btn danger" onClick={onConfirm}>{confirmLabel}</button>
+      </div>
+    </Modal>
+  )
+}
+
+export function Toast({ open, msg, err, onClose }) {
+  if (!open && !msg && !err) return null
+  return (
+    <div className="toast-overlay">
+      <div className={err ? 'toast-item err' : 'toast-item'} role="status" onClick={onClose}>
+        {err || msg}
+      </div>
     </div>
   )
 }

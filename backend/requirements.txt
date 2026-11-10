@@ -5,7 +5,6 @@ redis==5.2.1
 pydantic-settings==2.7.0
 pydantic[email]==2.10.4
 edge-tts>=7.3.1
-deep-translator==1.11.4
 bcrypt==4.2.1
 PyJWT==2.10.1
 cryptography==44.0.0
