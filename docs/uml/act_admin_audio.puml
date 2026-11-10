@@ -1,0 +1,46 @@
+@startuml 
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+skinparam ActivityBorderThickness 1.5
+
+|Quản trị viên|
+start
+:Truy cập bảng Quản lý Audio;
+:Chọn quán (POI) và nhấn "Yêu cầu tạo / tạo lại Audio";
+
+|Hệ thống Quản lý Tác vụ (Audio Worker)|
+:Đưa yêu cầu vào hàng đợi xử lý (Queue);
+:Cập nhật trạng thái: "Đang xử lý";
+
+|Dịch vụ Dịch & Edge-TTS|
+:Thực hiện dịch nội dung sang các ngôn ngữ đích;
+:Gọi Edge-TTS tổng hợp giọng đọc thuyết minh;
+
+|Quản trị viên|
+if (Admin can thiệp khi tác vụ đang chạy?) then (Tạm dừng / Tiếp tục)
+  |Hệ thống Quản lý Tác vụ (Audio Worker)|
+  :Tạm ngưng hoặc khôi phục tiến trình trong Queue;
+elseif (Hủy tác vụ)
+  |Hệ thống Quản lý Tác vụ (Audio Worker)|
+  :Dừng tiến trình và đánh dấu trạng thái "Đã hủy";
+  stop
+else (Để chạy tự động)
+endif
+
+|Hệ thống Quản lý Tác vụ (Audio Worker)|
+if (Quá trình tạo Audio thành công?) then (Lỗi mạng / TTS lỗi)
+  :Ghi nhận chi tiết lỗi vào hệ thống;
+  :Cập nhật trạng thái: "Lỗi (Failed)";
+  |Quản trị viên|
+  :Xem chi tiết lỗi trên bảng điều khiển\nđể quyết định chạy lại;
+  stop
+else (Thành công)
+  |Hệ thống Quản lý Tác vụ (Audio Worker)|
+  :Lưu trữ file Audio tạo sẵn và liên kết với POI;
+  :Cập nhật tiến độ: "Hoàn tất (100%)";
+  |Quản trị viên|
+  :Theo dõi trạng thái hoàn tất trên giao diện;
+  stop
+endif
+@enduml

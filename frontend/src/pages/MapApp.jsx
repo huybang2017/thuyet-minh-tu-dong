@@ -9,6 +9,10 @@ import { GeofenceEngine } from '../services/GeofenceEngine'
 import { LocationService } from '../services/LocationService'
 import { NarrationEngine } from '../services/NarrationEngine'
 import { consentState, reportLocation, setConsent, track } from '../services/analytics'
+import { buildPoiPopup } from '../services/poiPopup'
+import PoiSearch from '../components/PoiSearch'
+import FavoritesPanel from '../components/FavoritesPanel'
+import { useFavorites } from '../stores/favoritesStore'
 
 const MAP_CENTER = [106.7042, 10.7608] // tâm bản đồ ban đầu
 const MAP_STYLE = {
@@ -29,8 +33,15 @@ function Splash({ onPick, t }) {
 
 export default function MapApp() {
   const { pois, lang, hasChosenLang, unreachable, load, setLang } = usePoiStore()
-  const { t, status: uiStatus } = useUi()
+  const { t, status: uiStatus, strings: uiStrings } = useUi()
   const { user } = useAuth()
+  const favoriteItems = useFavorites((s) => s.items)
+  const recommendations = useFavorites((s) => s.recommendations)
+  const favoritesLoading = useFavorites((s) => s.loading)
+  const favoritesError = useFavorites((s) => s.error)
+  const loadFavorites = useFavorites((s) => s.load)
+  const toggleFavorite = useFavorites((s) => s.toggle)
+  const clearFavorites = useFavorites((s) => s.clear)
   const [mock, setMock] = useState(false)
   const [current, setCurrent] = useState(null)
   const [tier, setTier] = useState(null)
@@ -41,6 +52,14 @@ export default function MapApp() {
   const engine = useRef(null)
   const loc = useRef(null)
   const narrator = useRef(null)
+  const poiMarkers = useRef(new Map())
+  const [userPosition, setUserPosition] = useState(null)
+  const favoriteIds = new Set(favoriteItems.map((poi) => poi.id))
+
+  useEffect(() => {
+    if (user) loadFavorites()
+    else clearFavorites()
+  }, [user?.id, loadFavorites, clearFavorites])
 
   // khởi động: nạp UI bundle + POI, delta sync định kỳ
   useEffect(() => {
@@ -60,6 +79,7 @@ export default function MapApp() {
     engine.current = new GeofenceEngine({ onEnter: (poi) => { setCurrent(poi); narrator.current.narrate(poi) } })
     engine.current.start()
     loc.current = new LocationService((p) => {
+      setUserPosition({ lat: p.lat, lng: p.lng })
       userMarker.current?.setLngLat([p.lng, p.lat])
       engine.current.checkGeofences(p)
       if (!loc.current.mock) reportLocation(p.lat, p.lng)
@@ -75,11 +95,22 @@ export default function MapApp() {
   useEffect(() => {
     engine.current?.setPois(pois)
     const m = map.current
-    const markers = pois.map((p) => new maplibregl.Marker({ color: p.is_fallback ? '#9e9e9e' : '#e65100' })
-      .setLngLat([p.lng, p.lat])
-      .setPopup(new maplibregl.Popup().setHTML(`<b>${p.name}</b><br/>${p.description}`)).addTo(m))
-    return () => markers.forEach((x) => x.remove())
-  }, [pois])
+    const listen = (poi) => { setCurrent(poi); narrator.current.narrate(poi); track('poi_viewed', { poi_id: poi.id, lang }) }
+    const markers = pois.map((p) => {
+      const { root, onOpen } = buildPoiPopup(p, { t, lang, onListen: listen, isFavorite: favoriteIds.has(p.id), onFavorite: toggleFavorite })
+      const popup = new maplibregl.Popup({ maxWidth: '320px', offset: 25 }).setDOMContent(root)
+      popup.on('open', () => {
+        // đưa marker xuống nửa dưới khung để popup (mở lên trên) không bị khuất dưới thanh tiêu đề
+        m.easeTo({ center: [p.lng, p.lat], offset: [0, Math.min(220, m.getContainer().clientHeight * 0.3)], duration: 300 })
+        onOpen()
+      })
+      const marker = new maplibregl.Marker({ color: p.is_fallback ? '#9e9e9e' : '#e65100' })
+        .setLngLat([p.lng, p.lat]).setPopup(popup).addTo(m)
+      poiMarkers.current.set(p.id, marker)
+      return marker
+    })
+    return () => { markers.forEach((x) => x.remove()); poiMarkers.current.clear() }
+  }, [pois, lang, t, uiStrings, favoriteItems, toggleFavorite])
 
   useEffect(() => { loc.current?.setMock(mock) }, [mock])
 
@@ -100,6 +131,15 @@ export default function MapApp() {
       </div>
       {unreachable && <div className="banner" role="status">⚠ {t('server.unreachable')}</div>}
       {uiStatus === 'pending' && <div className="banner info">{t('ready.partial')}</div>}
+      <PoiSearch pois={pois} origin={userPosition} onSelect={(poi) => {
+        map.current?.easeTo({ center: [poi.lng, poi.lat], zoom: Math.max(map.current.getZoom(), 17), duration: 450 })
+        poiMarkers.current.get(poi.id)?.togglePopup()
+      }} />
+      <FavoritesPanel user={user} items={favoriteItems} recommendations={recommendations} loading={favoritesLoading}
+        error={favoritesError} onSelect={(poi) => {
+          map.current?.easeTo({ center: [poi.lng, poi.lat], zoom: Math.max(map.current.getZoom(), 17), duration: 450 })
+          poiMarkers.current.get(poi.id)?.togglePopup()
+        }} onRemove={toggleFavorite} />
       <div className="map" ref={mapEl} />
       {current && <div className="toast" role="status">🎧 [Tier {tier}] {current.name}: {current.description}</div>}
       {consent === null && (

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
-import { Field, Notice, Table, Tabs, useAction, useList } from '../components/Common'
+import { Field, ImageManager, Notice, Table, Tabs, useAction, useList } from '../components/Common'
 import { api } from '../services/api'
 import { useAuth } from '../stores/authStore'
 
@@ -33,15 +33,15 @@ function Shops() {
   const { msg, err, run } = useAction()
   const [edit, setEdit] = useState(null)
   const [ai, setAi] = useState({ usage: null, busy: false })
-  const empty = { name: '', description: '', lat: '10.7608', lng: '106.7042' }
+  const empty = { name: '', description: '', address: '', lat: '10.7608', lng: '106.7042', images: [] }
   const [f, setF] = useState(empty)
   const refreshUsage = () => api('/api/v1/ai/usage').then((u) => setAi((a) => ({ ...a, usage: u }))).catch(() => {})
   useEffect(() => { refreshUsage() }, [])
-  const body = () => ({ name: f.name, description: f.description, lat: num(f.lat), lng: num(f.lng) })
+  const body = () => ({ name: f.name, description: f.description, address: f.address || '', lat: num(f.lat), lng: num(f.lng), images: f.images })
   const submit = (e) => {
     e.preventDefault()
     run(async () => {
-      if (edit) await api(`${O}/pois/${edit}`, { method: 'PUT', body: { description: f.description, name: f.name } })
+      if (edit) await api(`${O}/pois/${edit}`, { method: 'PUT', body: { description: f.description, name: f.name, address: f.address || '', images: f.images } })
       else await api(`${O}/pois`, { method: 'POST', body: body() })
       setEdit(null); setF(empty); await subs.reload()
     }, 'Đã gửi — chờ quản trị viên duyệt mới hiển thị trên app')
@@ -58,6 +58,8 @@ function Shops() {
       <form className="inline-form" onSubmit={submit}>
         <Field label="Tên quán"><input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required /></Field>
         <Field label="Mô tả"><textarea rows={4} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} required /></Field>
+        <Field label="Địa chỉ"><input value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })} maxLength={200} /></Field>
+        <ImageManager value={f.images} onChange={(images) => setF((cur) => ({ ...cur, images }))} />
         {!edit && <div className="row"><Field label="Lat"><input value={f.lat} onChange={(e) => setF({ ...f, lat: e.target.value })} /></Field>
           <Field label="Lng"><input value={f.lng} onChange={(e) => setF({ ...f, lng: e.target.value })} /></Field></div>}
         <button className="btn" type="submit">Gửi duyệt</button>{' '}
@@ -67,8 +69,8 @@ function Shops() {
         {edit && <button type="button" className="btn ghost" onClick={() => { setEdit(null); setF(empty) }}>Huỷ sửa</button>}
       </form>
       <h3>Quán của tôi</h3>
-      <Table rows={pois.items} empty="Chưa có quán nào được duyệt" cols={[{ h: 'Tên', k: 'name' }, { h: 'Public', render: (p) => (p.is_active ? '✓' : '—') },
-        { h: '', render: (p) => <button onClick={() => { setEdit(p.id); setF({ ...empty, name: p.name, description: p.description }) }}>Sửa</button> }]} />
+      <Table rows={pois.items} empty="Chưa có quán nào được duyệt" cols={[{ h: 'Ảnh', render: (p) => (p.images?.[0] ? <img className="mini" src={p.images[0]} alt="" /> : '—') }, { h: 'Tên', k: 'name' }, { h: 'Public', render: (p) => (p.is_active ? '✓' : '—') },
+        { h: '', render: (p) => <button onClick={() => { setEdit(p.id); setF({ ...empty, name: p.name, description: p.description, address: p.address || '', images: p.images || [] }) }}>Sửa</button> }]} />
       <h3>Bài đã gửi</h3>
       <Table rows={subs.items} cols={[{ h: 'Loại', k: 'type' }, { h: 'Tên', render: (s) => s.data?.name }, { h: 'Trạng thái', k: 'status' }, { h: 'Ghi chú admin', k: 'admin_note' }]} />
     </div>

@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from math import asin, cos, radians, sin, sqrt
 
 from ..db import get_db
-from .seed import build_seed
+from .seed import build_menu_seed, build_seed
 
 _PRIVATE = {"_id", "location", "owner_id", "activation_requested"}
 
@@ -32,6 +32,15 @@ async def seed_if_empty() -> None:
     db = get_db()
     if await db.poi.estimated_document_count() == 0:
         await db.poi.insert_many(build_seed())
+
+
+async def seed_menu_if_empty() -> None:
+    """Bổ sung thực đơn mẫu còn thiếu; giữ nguyên món đã được quản lý."""
+    db = get_db()
+    ids = {d["_id"] async for d in db.poi.find({}, {"_id": 1})}
+    docs = build_menu_seed(ids)
+    for doc in docs:
+        await db.menu_items.update_one({"_id": doc["_id"]}, {"$setOnInsert": doc}, upsert=True)
 
 
 async def dataset_version() -> str:

@@ -1,0 +1,59 @@
+@startuml
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+skinparam ActivityBorderThickness 1.5
+
+|Chủ quán|
+start
+:Chọn "Tạo quán mới" hoặc "Chỉnh sửa quán";
+:Nhập thông tin quán và tải ảnh đính kèm;
+
+if (Sử dụng tính năng AI viết lại mô tả?) then (Có)
+  :Nhấn "Nhờ AI viết lại mô tả";
+  
+  |Hệ thống Backend|
+  :Kiểm tra cấu hình khóa API và\nsố lượt dùng còn lại của Chủ quán;
+  
+  if (Còn lượt dùng & API sẵn sàng?) then (Không)
+    :Trả về thông báo vượt giới hạn / lỗi dịch vụ;
+  else (Có)
+    |Gemini API|
+    :Xử lý và sinh đoạn mô tả mới;
+    |Hệ thống Backend|
+    :Trừ lượt sử dụng của Chủ quán;
+    :Trả kết quả về giao diện;
+    |Chủ quán|
+    :Xem xét, chỉnh sửa lại mô tả do AI gợi ý;
+  endif
+else (Không)
+endif
+
+|Chủ quán|
+:Nhấn "Gửi duyệt";
+
+|Hệ thống Backend|
+:Lưu bản gửi (Submission) và ảnh ở trạng thái "Chờ duyệt"\n(Chưa hiển thị công khai trên bản đồ);
+
+|Quản trị viên|
+:Mở tab Duyệt nội dung chủ quán;
+:Kiểm tra thông tin bài gửi và ảnh đính kèm;
+
+if (Nội dung đạt yêu cầu?) then (Từ chối)
+  :Nhập ghi chú phản hồi và nhấn "Từ chối";
+  |Hệ thống Backend|
+  :Cập nhật trạng thái bài gửi: "Bị từ chối";
+  :Tạo thông báo kèm ghi chú cho Chủ quán;
+else (Duyệt)
+  |Quản trị viên|
+  :Nhấn "Phê duyệt";
+  |Hệ thống Backend|
+  :Cập nhật dữ liệu quán lên Bản đồ công khai;
+  :Kích hoạt tiến trình đồng bộ / tạo Audio (nếu cần);
+  :Tạo thông báo "Đã duyệt" cho Chủ quán;
+endif
+
+|Chủ quán|
+:Xem thông báo, đánh dấu đã đọc và\ntheo dõi trạng thái bài gửi;
+stop
+@enduml

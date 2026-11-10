@@ -1,6 +1,8 @@
+import csv
+import io
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from .. import cache
@@ -39,6 +41,43 @@ async def collect(body: Collect, request: Request):
     return {"ok": True}
 
 
+async def _poi_names(ids: list[str]) -> dict[str, str]:
+    if not ids:
+        return {}
+    return {d["_id"]: d["name"] async for d in get_db().poi.find({"_id": {"$in": ids}}, {"name": 1})}
+
+
+def _csv_cell(v) -> str:
+    """Chặn CSV/formula injection khi mở bằng Excel (tên quán do người dùng nhập)."""
+    s = "" if v is None else str(v)
+    return "'" + s if s[:1] in ("=", "+", "-", "@", "\t", "\r") else s
+
+
+@router.get("/export")
+async def export_csv(days: int = Query(30, ge=1, le=365), _=Depends(require_permission("analytics:export"))):
+    """CSV theo ngày × sự kiện × quán × ngôn ngữ (UTF-8 BOM để Excel đọc đúng tiếng Việt)."""
+    db = get_db()
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = [d async for d in db.analytics_events.aggregate([
+        {"$match": {"ts": {"$gte": since}}},
+        {"$group": {"_id": {"day": {"$dateToString": {"format": "%Y-%m-%d", "date": "$ts", "timezone": "Asia/Ho_Chi_Minh"}},
+                            "event": "$event", "poi_id": "$poi_id", "lang": "$lang"},
+                    "count": {"$sum": 1}, "devices": {"$addToSet": "$device_id"}}},
+        {"$sort": {"_id.day": 1, "_id.event": 1, "count": -1}},
+    ])]
+    names = await _poi_names(sorted({r["_id"]["poi_id"] for r in rows if r["_id"].get("poi_id")}))
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["ngay", "su_kien", "poi_id", "ten_quan", "ngon_ngu", "so_luot", "so_thiet_bi"])
+    for r in rows:
+        k = r["_id"]
+        w.writerow([_csv_cell(x) for x in (k["day"], k["event"], k.get("poi_id"), names.get(k.get("poi_id")),
+                                           k.get("lang"), r["count"], len(r["devices"]))])
+    fname = f"thong-ke_{datetime.now(timezone.utc):%Y%m%d}_{days}ngay.csv"
+    return Response("﻿" + buf.getvalue(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
 @router.get("/summary")
 async def summary(days: int = 7, _=Depends(require_permission("analytics:view"))):
     db = get_db()
@@ -48,6 +87,9 @@ async def summary(days: int = 7, _=Depends(require_permission("analytics:view"))
     top = [{"poi_id": d["_id"], "plays": d["n"]} async for d in db.analytics_events.aggregate(
         [{"$match": {"ts": {"$gte": since}, "event": "narration_played", "poi_id": {"$ne": None}}},
          {"$group": {"_id": "$poi_id", "n": {"$sum": 1}}}, {"$sort": {"n": -1}}, {"$limit": 5}])]
+    names = await _poi_names([t["poi_id"] for t in top])
+    for t in top:
+        t["name"] = names.get(t["poi_id"])
     by_lang = {d["_id"] or "unknown": d["n"] async for d in db.analytics_events.aggregate(
         [{"$match": {"ts": {"$gte": since}, "event": "language_changed"}}, {"$group": {"_id": "$lang", "n": {"$sum": 1}}}])}
     return {

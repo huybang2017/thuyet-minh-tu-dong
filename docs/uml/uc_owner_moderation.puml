@@ -1,0 +1,36 @@
+@startuml
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+left to right direction
+
+actor "Chủ quán" as Owner
+actor "Quản trị viên" as Admin
+actor "Gemini API" as Gemini <<System>>
+
+rectangle "Quy trình Quản lý POI & Kiểm duyệt" {
+  usecase "Gửi thông tin quán mới" as UC_CreatePOI
+  usecase "Gửi yêu cầu chỉnh sửa quán" as UC_EditPOI
+  usecase "Tải ảnh đính kèm" as UC_UploadPhoto
+  usecase "Nhờ AI viết lại mô tả (Giới hạn lượt)" as UC_AIRewrite
+  usecase "Theo dõi trạng thái & Ghi chú kiểm duyệt" as UC_TrackStatus
+  
+  usecase "Kiểm duyệt nội dung bài gửi (Tạo/Sửa)" as UC_ReviewSubmissions
+  usecase "Duyệt và xuất bản công khai" as UC_Approve
+  usecase "Từ chối kèm lý do/ghi chú" as UC_Reject
+}
+
+Owner --> UC_CreatePOI
+Owner --> UC_EditPOI
+Owner --> UC_TrackStatus
+
+UC_CreatePOI ..> UC_UploadPhoto : <<include>>
+UC_EditPOI ..> UC_UploadPhoto : <<extend>>
+UC_CreatePOI <.. UC_AIRewrite : <<extend>>
+UC_EditPOI <.. UC_AIRewrite : <<extend>>
+UC_AIRewrite ..> Gemini : <<include>>
+
+Admin --> UC_ReviewSubmissions
+UC_ReviewSubmissions <.. UC_Approve : <<extend>>
+UC_ReviewSubmissions <.. UC_Reject : <<extend>>
+@enduml

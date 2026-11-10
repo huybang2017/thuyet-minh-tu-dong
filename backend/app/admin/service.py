@@ -29,6 +29,8 @@ async def ensure_roles() -> None:
         pass
     await db.admin_users.create_index("email", unique=True, name="email_unique_partial",
                                       partialFilterExpression={"email": {"$type": "string"}})
+    # token đặt lại mật khẩu tự xoá khi hết hạn
+    await db.password_resets.create_index("expires_at", expireAfterSeconds=0)
 
 
 async def ensure_super_admin() -> None:

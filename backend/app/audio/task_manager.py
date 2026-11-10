@@ -135,3 +135,28 @@ def list_tasks() -> list[dict]:
 
 def has_active() -> bool:
     return any(t["status"] in ("queued", "running", "paused") for t in _tasks.values())
+
+
+async def enqueue_missing_audio() -> int:
+    """Queue localization/audio generation for every active POI missing any supported language."""
+    import hashlib
+
+    db = get_db()
+    active_poi_ids = {t["poi_id"] for t in _tasks.values() if t["status"] in ("queued", "running", "paused")}
+    queued = 0
+    async for poi in db.poi.find({"is_active": True}):
+        if poi["_id"] in active_poi_ids:
+            continue
+        source_hash = hashlib.md5(f"{poi['name']}|{poi['description']}".encode()).hexdigest()
+        localized = {d["lang"] for d in await db.poi_localizations.find(
+            {"poi_id": poi["_id"], "lang": {"$in": PRIORITY_LANGS}, "source_hash": source_hash,
+             "audio_url": {"$ne": None}}, {"lang": 1}
+        ).to_list(len(PRIORITY_LANGS))}
+        if set(PRIORITY_LANGS).issubset(localized):
+            await db.poi.update_one({"_id": poi["_id"]}, {"$set": {"audio_status": "ready"}})
+            continue
+        await db.poi.update_one({"_id": poi["_id"]}, {"$set": {"audio_status": "processing"}})
+        enqueue(poi["_id"])
+        active_poi_ids.add(poi["_id"])
+        queued += 1
+    return queued

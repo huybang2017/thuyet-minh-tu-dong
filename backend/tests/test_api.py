@@ -23,7 +23,7 @@ POI_BODY = {"name": "Quán Test Cơm Tấm", "description": "Cơm tấm sườn 
 # ---------- health / auth ----------
 def test_health_ready(anon):
     r = anon.get("/health/ready").json()
-    assert r["status"] == "ready" and r["routers"] == 9
+    assert r["status"] == "ready" and r["routers"] == 11
 
 
 def test_login_flow_and_cookies(anon, admin):

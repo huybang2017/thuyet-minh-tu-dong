@@ -21,6 +21,17 @@ class Settings(BaseSettings):
     owner_daily_limit: int = 10
     pii_retention_days: int = 180
     cors_origins: str = "http://localhost:5173,http://localhost:4173"
+    # quên mật khẩu: link đặt lại trỏ về frontend; gửi qua SMTP nếu có cấu hình
+    public_base_url: str = "http://localhost:5173"
+    password_reset_expire_min: int = 30
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_starttls: bool = True
+    # ảnh quán
+    max_image_bytes: int = 2 * 1024 * 1024
 
     def assert_secure(self) -> None:
         """Fail fast ở non-dev nếu còn secret mặc định hoặc thiếu mật khẩu super admin."""
@@ -39,6 +50,10 @@ class Settings(BaseSettings):
     @property
     def secure_cookies(self) -> bool:
         return self.app_env != "dev"
+
+    @property
+    def smtp_enabled(self) -> bool:
+        return bool(self.smtp_host and self.smtp_from)
 
 
 settings = Settings()

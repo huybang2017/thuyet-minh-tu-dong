@@ -3,3 +3,4 @@ node_modules/
 dist/
 __pycache__/
 backend/app/static/audio/
+backend/app/static/images/

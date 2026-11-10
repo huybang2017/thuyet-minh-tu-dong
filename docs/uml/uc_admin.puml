@@ -1,0 +1,59 @@
+@startuml
+skinparam monochrome true
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam defaultFontName "Arial"
+left to right direction
+
+actor "Quản trị viên\n(Admin)" as Admin
+actor "Super Admin" as SuperAdmin
+Admin <|-- SuperAdmin
+
+rectangle "Phân hệ Quản trị & Kiểm duyệt Hệ thống" {
+  
+  package "Quản lý Dữ liệu Quán & Nội dung" {
+    usecase "Quản lý POI\n(Tạo, sửa, ẩn/hiện, xóa)" as UC_ManagePOI
+    usecase "Cấu hình tọa độ, bán kính\n& độ ưu tiên Audio" as UC_ConfigGeo
+    usecase "Quản lý thực đơn\n(Thêm, sửa, xóa, lọc theo quán)" as UC_ManageMenu
+    usecase "Quản lý tiến trình Audio\n(Theo dõi, Tạm dừng, Hủy, Tạo lại)" as UC_ManageAudio
+  }
+
+  package "Kiểm duyệt (Moderation)" {
+    usecase "Duyệt đăng ký Chủ quán\n(Duyệt/Từ chối & Gửi ghi chú)" as UC_ApproveOwner
+    usecase "Duyệt nội dung tạo/sửa quán\n& ảnh đính kèm" as UC_ApproveContent
+  }
+
+  package "Thống kê & Giám sát (Analytics & Logs)" {
+    usecase "Xem Analytics tổng quan\n(Lượt nghe, Ngôn ngữ, Thiết bị)" as UC_ViewAnalytics
+    usecase "Xem dữ liệu vị trí tổng hợp\ntheo ô lưới (Grid) & thời gian" as UC_ViewGrid
+    usecase "Xuất báo cáo thống kê CSV\ntheo khoảng ngày" as UC_ExportCSV
+    usecase "Tra cứu lịch sử hoạt động\n(Audit Log)" as UC_AuditLog
+  }
+
+  package "Quản trị Hệ thống & Phân quyền" {
+    usecase "Quản lý tài khoản người dùng\n(Tạo, Khóa/Mở, Đổi MK)" as UC_ManageUsers
+    usecase "Xóa tài khoản & Dữ liệu liên quan\n(Đơn đăng ký, Thông báo, Token)" as UC_DeleteUser
+    usecase "Quản lý Vai trò (Roles)\n& Quyền hạn (Permissions)" as UC_ManageRBAC
+  }
+}
+
+' Liên kết cho Admin
+Admin --> UC_ManagePOI
+UC_ManagePOI ..> UC_ConfigGeo : <<include>>
+Admin --> UC_ManageMenu
+Admin --> UC_ManageAudio
+
+Admin --> UC_ApproveOwner
+Admin --> UC_ApproveContent
+
+Admin --> UC_ViewAnalytics
+UC_ViewAnalytics <.. UC_ViewGrid : <<extend>>
+UC_ViewAnalytics <.. UC_ExportCSV : <<extend>>
+Admin --> UC_AuditLog
+
+Admin --> UC_ManageUsers
+UC_ManageUsers <.. UC_DeleteUser : <<extend>>
+
+' Liên kết đặc quyền của Super Admin
+SuperAdmin --> UC_ManageRBAC
+@enduml
