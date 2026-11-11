@@ -1,0 +1,72 @@
+@startuml
+skinparam monochrome true
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam defaultFontName "Arial"
+left to right direction
+
+actor "Du khách" as Guest
+actor "Người dùng hệ thống\n(Đã đăng nhập)" as AuthUser
+actor "Chủ quán\n(poi_owner)" as Owner
+actor "Quản trị viên\n(Admin)" as Admin
+actor "Super Admin" as SuperAdmin
+
+' Quan hệ kế thừa giữa các Actor
+AuthUser <|-- Owner
+AuthUser <|-- Admin
+Admin <|-- SuperAdmin
+
+' Các hệ thống bên ngoài
+actor "GPS & Bản đồ" as ExtMap <<System>>
+actor "Dịch vụ AI & TTS" as ExtAI <<System>>
+actor "Hệ thống Email" as ExtMail <<System>>
+
+rectangle "Hệ thống Thuyết minh & Bản đồ Ẩm thực" {
+  package "Phân hệ Du khách & Khám phá" {
+    usecase "Khám phá bản đồ & Quán ăn" as UC_Map
+    usecase "Nghe thuyết minh theo vị trí / Geofence" as UC_Audio
+    usecase "Xem thực đơn & Thông tin quán" as UC_Menu
+  }
+
+  package "Phân hệ Chủ quán" {
+    usecase "Đăng ký tài khoản chủ quán" as UC_RegisterOwner
+    usecase "Quản lý & Gửi duyệt thông tin quán" as UC_ManagePOI
+    usecase "Viết lại mô tả bằng AI" as UC_AI_Rewrite
+  }
+
+  package "Phân hệ Quản trị & Kiểm duyệt" {
+    usecase "Kiểm duyệt đơn đăng ký & Bài gửi" as UC_Moderation
+    usecase "Quản trị dữ liệu POI, Menu & Audio" as UC_AdminData
+    usecase "Quản trị người dùng, Vai trò & Phân quyền" as UC_AdminUsers
+    usecase "Theo dõi Analytics & Audit Log" as UC_Analytics
+  }
+
+  package "Dịch vụ dùng chung" {
+    usecase "Xác thực & Đổi / Đặt lại mật khẩu" as UC_Auth
+  }
+}
+
+' Liên kết Du khách
+Guest --> UC_Map
+Guest --> UC_Audio
+Guest --> UC_Menu
+UC_Map ..> ExtMap : <<include>>
+UC_Audio ..> ExtAI : <<include>>
+
+' Liên kết Người dùng chung
+AuthUser --> UC_Auth
+UC_Auth ..> ExtMail : <<include>>
+
+' Liên kết Chủ quán
+Guest <|-- Owner : Đăng ký ban đầu
+Owner --> UC_RegisterOwner
+Owner --> UC_ManagePOI
+Owner --> UC_AI_Rewrite
+UC_AI_Rewrite ..> ExtAI : <<include>>
+
+' Liên kết Quản trị viên
+Admin --> UC_Moderation
+Admin --> UC_AdminData
+Admin --> UC_Analytics
+SuperAdmin --> UC_AdminUsers
+@enduml

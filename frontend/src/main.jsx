@@ -6,6 +6,7 @@ import LoginPage from './pages/LoginPage.jsx'
 import RegisterOwnerPage from './pages/RegisterOwnerPage.jsx'
 import AdminPage from './pages/AdminPage.jsx'
 import OwnerPage from './pages/OwnerPage.jsx'
+import { ForgotPasswordPage, ResetPasswordPage } from './pages/PasswordResetPages.jsx'
 import { useAuth } from './stores/authStore'
 import './styles.css'
 
@@ -16,6 +17,8 @@ function Root() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register-owner" element={<RegisterOwnerPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/admin/*" element={<AdminPage />} />
       <Route path="/owner/*" element={<OwnerPage />} />
       <Route path="*" element={<MapApp />} />

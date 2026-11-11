@@ -8,6 +8,32 @@ html, body, #root { height: 100%; margin: 0; font-family: 'Segoe UI', sans-serif
 .spacer { flex: 1; }
 .lnk { color: #fff; text-decoration: underline; }
 .map { flex: 1; min-height: 240px; }
+.poi-search { position: absolute; z-index: 6; top: 4.2rem; left: .75rem; width: min(440px, calc(100% - 1.5rem)); background: #fff; border: 1px solid var(--border); border-radius: 9px; box-shadow: 0 2px 10px rgba(0,0,0,.18); }
+.poi-search-controls { display: flex; gap: .35rem; padding: .45rem; }
+.poi-search-query { flex: 1; min-width: 100px; }
+.poi-search-query input, .poi-search-radius select { width: 100%; height: 2.25rem; padding: .35rem .5rem; border: 1px solid var(--border); border-radius: 5px; font: inherit; }
+.poi-search-radius { width: 130px; }
+.poi-search-toggle { border: 0; border-radius: 5px; padding: .35rem .6rem; background: var(--primary); color: #fff; cursor: pointer; white-space: nowrap; }
+.poi-search-results { max-height: min(45vh, 360px); overflow: auto; border-top: 1px solid var(--border); }
+.poi-search-result { width: 100%; display: grid; grid-template-columns: 1fr auto; gap: .2rem .6rem; padding: .65rem .75rem; border: 0; border-bottom: 1px solid #eee; background: #fff; text-align: left; cursor: pointer; }
+.poi-search-result:hover, .poi-search-result:focus { background: #fff3e0; }
+.poi-search-result span { color: var(--muted); font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.poi-search-result small { grid-column: 2; grid-row: 1 / span 2; align-self: center; color: var(--primary); white-space: nowrap; }
+.poi-search-empty { margin: 0; padding: .8rem; color: var(--muted); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+.poi-favorite { display: block; margin: .25rem 0 .6rem; }
+.favorites-panel { position: absolute; z-index: 6; top: 4.2rem; right: .75rem; width: min(340px, calc(100% - 1.5rem)); }
+.favorites-toggle { display: block; margin-left: auto; border: 1px solid var(--border); border-radius: 7px; padding: .65rem .85rem; background: #fff; color: #8a4b00; box-shadow: 0 2px 9px rgba(0,0,0,.16); cursor: pointer; font: inherit; font-weight: 600; }
+.favorites-content { max-height: min(65vh, 540px); overflow-y: auto; margin-top: .35rem; padding: .65rem; border: 1px solid var(--border); border-radius: 8px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.18); }
+.favorites-content h3 { margin: .4rem 0; font-size: .95rem; }
+.favorite-row { display: flex; align-items: center; justify-content: space-between; gap: .5rem; border-bottom: 1px solid #eee; }
+.favorite-row button, .recommendation-row { border: 0; background: transparent; cursor: pointer; }
+.favorite-row button:last-child { font-size: 1.2rem; color: var(--err); }
+.favorite-name { padding: .5rem 0; text-align: left; color: var(--text); font: inherit; }
+.recommendation-row { display: flex; flex-direction: column; gap: .2rem; width: 100%; padding: .55rem 0; text-align: left; border-bottom: 1px solid #eee; color: var(--text); }
+.recommendation-row:hover, .favorite-name:hover { color: var(--primary); }
+.recommendation-row small { color: var(--muted); font-size: .76rem; }
+.favorites-error { color: var(--err); font-size: .85rem; }
 .toast { position: absolute; left: 50%; bottom: 5.5rem; transform: translateX(-50%); background: #212121; color: #fff; padding: .8rem 1.2rem; border-radius: 8px; max-width: 90%; z-index: 10; }
 .banner { background: #fff3e0; color: #e65100; padding: .35rem 1rem; font-size: .85rem; border-bottom: 1px solid #ffcc80; }
 .banner.info { background: #e3f2fd; color: #1565c0; border-color: #90caf9; }
@@ -46,4 +72,26 @@ button.danger { color: var(--err); border-color: var(--err); }
 .stats div { border: 1px solid var(--border); border-radius: 8px; padding: .8rem; display: flex; flex-direction: column; }
 .stats b { font-size: 1.6rem; color: var(--primary); }
 fieldset { border: 1px solid var(--border); margin: .4rem 0; } .chk { margin-right: .8rem; font-size: .85rem; }
+/* ảnh quán (admin/owner) */
+.thumbs { display: flex; gap: .5rem; flex-wrap: wrap; align-items: flex-start; }
+.thumb { width: 96px; margin: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: #fff; }
+.thumb img { width: 96px; height: 72px; object-fit: cover; display: block; }
+.thumb figcaption { padding: .2rem; justify-content: center; }
+.thumb.add { height: 72px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--primary); border-style: dashed; font-size: .8rem; text-align: center; }
+img.mini { width: 48px; height: 36px; object-fit: cover; border-radius: 4px; display: block; }
+/* popup quán trên bản đồ */
+.poi-pop { font-size: .88rem; max-height: min(52vh, 420px); overflow-y: auto; }
+.poi-pop h3 { margin: .3rem 0; font-size: 1rem; }
+.poi-pop .btn { margin: .3rem 0 .5rem; padding: .35rem .8rem; }
+.poi-desc { margin: .2rem 0; line-height: 1.4; }
+.poi-note { margin: 0; color: var(--muted); font-size: .78rem; font-style: italic; }
+.poi-gallery { display: flex; gap: .3rem; overflow-x: auto; scroll-snap-type: x mandatory; margin: -.2rem 0 .2rem; }
+.poi-gallery img { width: 100%; min-width: 100%; height: 140px; object-fit: cover; border-radius: 6px; scroll-snap-align: start; }
+.poi-menu h4 { margin: .4rem 0 .2rem; font-size: .9rem; border-top: 1px solid var(--border); padding-top: .4rem; }
+.poi-menu ul { list-style: none; margin: 0; padding: 0; }
+.poi-menu li { display: flex; justify-content: space-between; gap: .6rem; padding: .25rem 0; border-bottom: 1px dotted var(--border); }
+.mi-name { display: flex; flex-direction: column; }
+.mi-name small { color: var(--muted); font-size: .75rem; }
+.mi-price { white-space: nowrap; font-weight: 600; color: var(--primary); }
 @media (max-width: 600px) { .bar { gap: .5rem; } .card { margin: .5rem; padding: .8rem; } }
+@media (max-width: 600px) { .poi-search { top: 5.7rem; } .favorites-panel { top: 10.1rem; } .poi-search-controls { flex-wrap: wrap; } .poi-search-query { flex-basis: 100%; } .poi-search-radius { flex: 1; } }

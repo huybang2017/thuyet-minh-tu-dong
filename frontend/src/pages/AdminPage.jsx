@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
-import { Field, Notice, Table, Tabs, useAction, useList } from '../components/Common'
-import { A, api } from '../services/api'
+import { Field, ImageManager, Notice, Table, Tabs, useAction, useList } from '../components/Common'
+import { A, api, downloadFile } from '../services/api'
+import { formatPrice } from '../services/format'
 import { useAuth } from '../stores/authStore'
 
-const POI_EMPTY = { name: '', description: '', lat: '10.7608', lng: '106.7042', trigger_radius: '30', audio_priority: '3', area: '' }
+const POI_EMPTY = { name: '', description: '', address: '', lat: '10.7608', lng: '106.7042', trigger_radius: '30', audio_priority: '3', images: [] }
 const num = (v) => (v === '' || v == null ? undefined : Number(v))
 
 function PoiForm({ initial, onSubmit, onCancel }) {
@@ -12,16 +13,17 @@ function PoiForm({ initial, onSubmit, onCancel }) {
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value })
   return (
     <form className="inline-form" onSubmit={(e) => { e.preventDefault(); onSubmit({
-      name: f.name, description: f.description, lat: num(f.lat), lng: num(f.lng),
-      trigger_radius: num(f.trigger_radius), audio_priority: num(f.audio_priority), area: f.area || undefined }) }}>
+      name: f.name, description: f.description, address: f.address || '', lat: num(f.lat), lng: num(f.lng),
+      trigger_radius: num(f.trigger_radius), audio_priority: num(f.audio_priority), images: f.images || [] }) }}>
       <Field label="Tên"><input value={f.name} onChange={set('name')} required /></Field>
       <Field label="Mô tả (tiếng Việt)"><textarea value={f.description} onChange={set('description')} required rows={3} /></Field>
+      <Field label="Địa chỉ"><input value={f.address || ''} onChange={set('address')} maxLength={200} /></Field>
+      <ImageManager value={f.images || []} onChange={(images) => setF((cur) => ({ ...cur, images }))} />
       <div className="row">
         <Field label="Lat"><input value={f.lat} onChange={set('lat')} required /></Field>
         <Field label="Lng"><input value={f.lng} onChange={set('lng')} required /></Field>
         <Field label="Bán kính (m)"><input value={f.trigger_radius} onChange={set('trigger_radius')} /></Field>
         <Field label="Ưu tiên audio (1=cao)"><input value={f.audio_priority} onChange={set('audio_priority')} /></Field>
-        <Field label="Khu vực"><input value={f.area || ''} onChange={set('area')} placeholder="vd: Bến Thành" /></Field>
       </div>
       <button className="btn" type="submit">Lưu</button> {onCancel && <button type="button" className="btn ghost" onClick={onCancel}>Huỷ</button>}
     </form>
@@ -40,11 +42,12 @@ function PoiTab() {
       <Notice msg={msg} err={err || error} />
       {can('poi:create') && <details key={formKey}><summary>+ Thêm POI</summary>
         <PoiForm initial={POI_EMPTY} onSubmit={(b) => act(async () => { await api(`${A}/pois`, { method: 'POST', body: b }); setFormKey((k) => k + 1) }, 'Đã tạo — audio đang được sinh, POI sẽ tự bật khi sẵn sàng')} /></details>}
-      {editing && <PoiForm initial={{ ...POI_EMPTY, ...editing, lat: String(editing.lat), lng: String(editing.lng), trigger_radius: String(editing.trigger_radius ?? ''), audio_priority: String(editing.audio_priority ?? '') }}
+      {editing && <PoiForm key={editing.id} initial={{ ...POI_EMPTY, ...editing, address: editing.address || '', images: editing.images || [], lat: String(editing.lat), lng: String(editing.lng), trigger_radius: String(editing.trigger_radius ?? ''), audio_priority: String(editing.audio_priority ?? '') }}
         onCancel={() => setEditing(null)}
         onSubmit={(b) => act(async () => { await api(`${A}/pois/${editing.id}`, { method: 'PUT', body: b }); setEditing(null) }, 'Đã cập nhật')} />}
       <Table rows={items} cols={[
-        { h: 'Tên', k: 'name' }, { h: 'Khu vực', k: 'area' },
+        { h: 'Ảnh', render: (p) => (p.images?.[0] ? <img className="mini" src={p.images[0]} alt="" /> : '—') },
+        { h: 'Tên', k: 'name' },
         { h: 'Trạng thái', render: (p) => <span className={p.is_active ? 'badge on' : 'badge off'}>{p.is_active ? 'Public' : p.activation_requested ? 'Chờ audio' : 'Ẩn'}</span> },
         { h: 'Audio', k: 'audio_status' },
         { h: 'Thao tác', render: (p) => (
@@ -61,7 +64,6 @@ function PoiTab() {
 
 function AudioTab() {
   const [tasks, setTasks] = useState([])
-  const pois = useList(`${A}/pois`)
   const { msg, err, run } = useAction()
   useEffect(() => {
     const es = new EventSource(`${A}/audio-tasks-stream`, { withCredentials: true })
@@ -74,7 +76,7 @@ function AudioTab() {
     <div><Notice msg={msg} err={err} />
       <p className="muted">Tiến độ cập nhật real-time qua SSE.</p>
       <Table rows={tasks} cols={[
-        { h: 'POI', render: (t) => pois.items.find((p) => p.id === t.poi_id)?.name ?? t.poi_id }, { h: 'Trạng thái', k: 'status' },
+        { h: 'POI', k: 'poi_id' }, { h: 'Trạng thái', k: 'status' },
         { h: 'Tiến độ', render: (t) => <span><progress max={t.total} value={t.done} /> {t.done}/{t.total}</span> },
         { h: 'Lỗi', render: (t) => t.error || '' },
         { h: '', render: (t) => ['running', 'paused', 'queued'].includes(t.status) && (
@@ -87,23 +89,48 @@ function AudioTab() {
   )
 }
 
+const MENU_EMPTY = { id: null, poi_id: '', name: '', price: '', description: '' }
+
 function MenuTab() {
-  const { items, error, reload } = useList(`${A}/menus`)
+  const [filter, setFilter] = useState('')
+  const { items, error, reload } = useList(`${A}/menus${filter ? `?poi_id=${encodeURIComponent(filter)}` : ''}`)
   const pois = useList(`${A}/pois`)
   const { can } = useAuth()
   const { msg, err, run } = useAction()
-  const [f, setF] = useState({ poi_id: '', name: '', price: '' })
+  const [f, setF] = useState(MENU_EMPTY)
   const act = (fn, ok) => run(async () => { await fn(); await reload() }, ok)
+  const poiName = Object.fromEntries(pois.items.map((p) => [p.id, p.name]))
+  const save = (e) => {
+    e.preventDefault()
+    const body = { name: f.name, price: Number(f.price), description: f.description || '' } // '' để xoá được mô tả
+    act(async () => {
+      if (f.id) await api(`${A}/menus/${f.id}`, { method: 'PUT', body })
+      else await api(`${A}/menus`, { method: 'POST', body: { ...body, poi_id: f.poi_id } })
+      setF({ ...MENU_EMPTY, poi_id: f.poi_id })
+    }, f.id ? 'Đã cập nhật món' : 'Đã thêm món')
+  }
   return (
     <div><Notice msg={msg} err={err || error} />
-      {can('menu:create') && <form className="inline-form row" onSubmit={(e) => { e.preventDefault(); act(() => api(`${A}/menus`, { method: 'POST', body: { ...f, price: Number(f.price) } }), 'Đã thêm món') }}>
-        <Field label="Quán"><select value={f.poi_id} onChange={(e) => setF({ ...f, poi_id: e.target.value })} required>
-          <option value="">— chọn —</option>{pois.items.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
-        <Field label="Tên món"><input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required /></Field>
-        <Field label="Giá (đ)"><input value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} required inputMode="numeric" /></Field>
-        <button className="btn" type="submit">Thêm</button></form>}
-      <Table rows={items} cols={[{ h: 'Quán', render: (m) => pois.items.find((p) => p.id === m.poi_id)?.name ?? m.poi_id }, { h: 'Món', k: 'name' }, { h: 'Giá', k: 'price' },
-        { h: '', render: (m) => can('menu:delete') && <button className="danger" onClick={() => act(() => api(`${A}/menus/${m.id}`, { method: 'DELETE' }), 'Đã xoá')}>Xoá</button> }]} />
+      {(can('menu:create') || (f.id && can('menu:update'))) && <form className="inline-form" onSubmit={save}>
+        <div className="row">
+          <Field label="Quán"><select value={f.poi_id} onChange={(e) => setF({ ...f, poi_id: e.target.value })} required disabled={!!f.id}>
+            <option value="">— chọn —</option>{pois.items.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
+          <Field label="Tên món"><input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required maxLength={120} /></Field>
+          <Field label="Giá (đ)"><input value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} required inputMode="numeric" pattern="[0-9]+" /></Field>
+        </div>
+        <Field label="Mô tả món (tuỳ chọn)"><input value={f.description || ''} onChange={(e) => setF({ ...f, description: e.target.value })} maxLength={300} /></Field>
+        <button className="btn" type="submit">{f.id ? 'Lưu' : 'Thêm'}</button>{' '}
+        {f.id && <button type="button" className="btn ghost" onClick={() => setF(MENU_EMPTY)}>Huỷ sửa</button>}
+      </form>}
+      <Field label="Lọc theo quán"><select value={filter} onChange={(e) => setFilter(e.target.value)}>
+        <option value="">Tất cả</option>{pois.items.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
+      <Table rows={items} cols={[{ h: 'Quán', render: (m) => poiName[m.poi_id] || m.poi_id }, { h: 'Món', k: 'name' },
+        { h: 'Giá', render: (m) => formatPrice(m.price) }, { h: 'Mô tả', render: (m) => m.description || '' },
+        { h: '', render: (m) => (
+          <span className="actions">
+            {can('menu:update') && <button onClick={() => setF({ id: m.id, poi_id: m.poi_id, name: m.name, price: String(m.price), description: m.description || '' })}>Sửa</button>}
+            {can('menu:delete') && <button className="danger" onClick={() => window.confirm(`Xoá món "${m.name}"?`) && act(() => api(`${A}/menus/${m.id}`, { method: 'DELETE' }), 'Đã xoá')}>Xoá</button>}
+          </span>) }]} />
     </div>
   )
 }
@@ -129,6 +156,12 @@ function UserTab() {
         { h: '', render: (u) => (
           <span className="actions">
             {can('user:update') && <button onClick={() => act(() => api(`${A}/users/${u.id}`, { method: 'PUT', body: { is_active: !u.is_active } }))}>{u.is_active ? 'Khoá' : 'Mở khoá'}</button>}
+            {can('user:update') && <button onClick={() => {
+              const pw = window.prompt(`Mật khẩu mới cho ${u.username} (≥ 8 ký tự):`)
+              if (pw == null) return
+              if (pw.length < 8 || pw.length > 72) { window.alert('Mật khẩu phải dài 8–72 ký tự'); return }
+              act(() => api(`${A}/users/${u.id}`, { method: 'PUT', body: { password: pw } }), `Đã đặt mật khẩu mới cho ${u.username} — các phiên cũ sẽ bị đăng xuất`)
+            }}>Đặt mật khẩu</button>}
             {can('user:delete') && <button className="danger" onClick={() => window.confirm(`Xoá ${u.username}?`) && act(() => api(`${A}/users/${u.id}`, { method: 'DELETE' }), 'Đã xoá')}>Xoá</button>}
           </span>) }]} />
     </div>
@@ -178,7 +211,11 @@ function ReviewTab() {
         { h: 'CCCD', render: (r) => (r.has_cccd ? 'đã mã hoá' : 'đã xoá') }, { h: '', render: btns('registrations') }]} />
       <h3>Bài gửi POI từ chủ quán</h3>
       <Table rows={subs.items} empty="Không có bài chờ duyệt" cols={[{ h: 'Loại', k: 'type' }, { h: 'Tên', render: (s) => s.data?.name },
-        { h: 'Nội dung', render: (s) => (s.data?.description || '').slice(0, 80) }, { h: '', render: btns('submissions') }]} />
+        { h: 'Nội dung', render: (s) => (s.data?.description || '').slice(0, 80) },
+        { h: 'Ảnh', render: (s) => (s.data?.images?.length
+          ? <span className="thumbs">{s.data.images.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer"><img className="mini" src={u} alt="" /></a>)}</span>
+          : '—') },
+        { h: '', render: btns('submissions') }]} />
     </div>
   )
 }
@@ -192,9 +229,18 @@ function AuditTab() {
 function AnalyticsTab() {
   const s = useList('/api/v1/analytics/summary', 'x')
   const o = useList(`${A}/observability`, 'cells')
+  const { can } = useAuth()
+  const { msg, err, run } = useAction()
+  const [days, setDays] = useState('30')
   const d = s.raw
+  const langs = Object.entries(d?.languages || {}).sort((a, b) => b[1] - a[1]).map(([lang, n]) => ({ id: lang, lang, n }))
   return (
-    <div><Notice err={s.error} />
+    <div><Notice err={s.error || err} msg={msg} />
+      {can('analytics:export') && <div className="row inline-form">
+        <Field label="Xuất dữ liệu (CSV, mở được bằng Excel)"><select value={days} onChange={(e) => setDays(e.target.value)}>
+          {['7', '30', '90', '365'].map((n) => <option key={n} value={n}>{n} ngày gần nhất</option>)}</select></Field>
+        <button className="btn" onClick={() => run(() => downloadFile(`/api/v1/analytics/export?days=${days}`, 'thong-ke.csv'), 'Đã tải file thống kê')}>⬇ Tải CSV</button>
+      </div>}
       {d && <div className="stats">
         <div><b>{d.tracked_online_users}</b><span>Thiết bị đã consent đang online</span></div>
         <div><b>{d.devices}</b><span>Thiết bị trong {d.window_days} ngày</span></div>
@@ -202,7 +248,8 @@ function AnalyticsTab() {
         <div><b>{o.raw?.total ?? 0}</b><span>Điểm vị trí runtime (24h)</span></div>
       </div>}
       <p className="muted">"Online" = số anonymous device đã consent còn trong cửa sổ trượt hiện tại, không phải tổng traffic.</p>
-      <h3>Top POI nghe nhiều</h3><Table rows={(d?.top_pois || []).map((x) => ({ ...x, id: x.poi_id }))} cols={[{ h: 'POI', render: (x) => x.name ?? x.poi_id }, { h: 'Lượt nghe', k: 'plays' }]} />
+      <h3>Top quán được nghe nhiều</h3><Table rows={(d?.top_pois || []).map((x) => ({ ...x, id: x.poi_id }))} cols={[{ h: 'Quán', render: (x) => x.name || x.poi_id }, { h: 'Lượt nghe', k: 'plays' }]} />
+      <h3>Ngôn ngữ được chọn</h3><Table rows={langs} cols={[{ h: 'Ngôn ngữ', k: 'lang' }, { h: 'Số lần chọn', k: 'n' }]} />
       <h3>Vùng hoạt động (ô lưới ~110 m)</h3><Table rows={o.items.map((c, i) => ({ ...c, id: i }))} cols={[{ h: 'Lat', k: 'lat' }, { h: 'Lng', k: 'lng' }, { h: 'Số lần', k: 'count' }]} />
     </div>
   )

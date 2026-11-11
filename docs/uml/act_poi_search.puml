@@ -1,0 +1,37 @@
+@startuml
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+skinparam ActivityBorderThickness 1.5
+
+|Du khách|
+start
+:Mở tìm kiếm quán trên bản đồ;
+:Nhập từ khóa (không bắt buộc);
+:Chọn bán kính (không bắt buộc);
+
+|Trình duyệt / Client|
+:Lấy danh sách quán đang hiển thị;
+if (Có chọn bán kính?) then (Có)
+  if (Đã có vị trí hiện tại?) then (Có)
+    :Tính khoảng cách từ vị trí đến từng quán;
+  else (Không)
+    :Không có kết quả phù hợp với bộ lọc bán kính;
+  endif
+else (Không)
+endif
+:Lọc theo tên, mô tả hoặc địa chỉ;
+:Sắp xếp theo khoảng cách nếu có vị trí,
+nếu không theo tên;
+
+|Du khách|
+:Xem danh sách kết quả;
+if (Có quán phù hợp?) then (Có)
+  :Chọn một quán;
+  |Trình duyệt / Client|
+  :Định vị marker và mở popup quán trên bản đồ;
+else (Không)
+  :Xem thông báo không tìm thấy quán phù hợp;
+endif
+stop
+@enduml

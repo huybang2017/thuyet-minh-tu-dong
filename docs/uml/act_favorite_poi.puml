@@ -1,0 +1,59 @@
+@startuml
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+skinparam ActivityBorderThickness 1.5
+
+|Du khách|
+start
+:Chọn thao tác yêu thích\n(lưu, xem danh sách hoặc bỏ lưu);
+
+|Trình duyệt / Client|
+if (Đã đăng nhập?) then (Có)
+else (Không)
+  |Du khách|
+  :Chọn đăng nhập;
+  |Hệ thống|
+  :Xác thực tài khoản;
+  if (Đăng nhập thành công?) then (Có)
+  else (Không)
+    |Du khách|
+    :Nhận yêu cầu đăng nhập / lỗi xác thực;
+    stop
+  endif
+endif
+
+|Trình duyệt / Client|
+if (Thao tác là lưu quán?) then (Có)
+  |Hệ thống|
+  :Kiểm tra quán còn hoạt động;
+  if (Quán tồn tại và đang hiển thị?) then (Có)
+    :Lưu yêu thích gắn với tài khoản;
+    |Trình duyệt / Client|
+    :Tải lại danh sách yêu thích và gợi ý;
+  else (Không)
+    |Du khách|
+    :Nhận thông báo quán không tồn tại hoặc đã ẩn;
+    stop
+  endif
+else (Không)
+  if (Thao tác là bỏ lưu?) then (Có)
+    |Hệ thống|
+    :Xóa mục yêu thích của tài khoản;
+    |Trình duyệt / Client|
+    :Tải lại danh sách yêu thích và gợi ý;
+  else (Xem danh sách)
+    |Trình duyệt / Client|
+    :Yêu cầu danh sách đã lưu và gợi ý;
+    |Hệ thống|
+    :Trả quán còn hoạt động đã lưu;
+    :Tạo gợi ý từ tên, mô tả và món ăn;
+    |Trình duyệt / Client|
+    :Hiển thị danh sách và gợi ý;
+  endif
+endif
+
+|Du khách|
+:Xem kết quả thao tác;
+stop
+@enduml

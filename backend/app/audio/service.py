@@ -4,7 +4,6 @@ from pathlib import Path
 
 import edge_tts
 import httpx
-from deep_translator import GoogleTranslator
 
 AUDIO_DIR = Path(__file__).resolve().parent.parent / "static" / "audio"
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
@@ -87,7 +86,6 @@ async def _provider_chain(text: str, target: str) -> str:
         _gemini_translate,
         _gtx_translate,
         _mymemory_translate,
-        lambda t, tg: asyncio.to_thread(GoogleTranslator(source="vi", target=tg).translate, t),
     ]
     last: Exception | None = None
     for attempt in range(TRANSLATE_RETRIES):

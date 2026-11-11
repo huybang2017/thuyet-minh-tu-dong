@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from math import asin, cos, radians, sin, sqrt
 
 from ..db import get_db
-from .seed import build_seed
+from .seed import build_menu_seed, build_seed
 
 _PRIVATE = {"_id", "owner_id", "activation_requested", "deleted_at"}
 
@@ -32,6 +32,21 @@ async def seed_if_empty() -> None:
     db = get_db()
     if await db.scalar("SELECT COUNT(*) FROM poi") == 0:
         await db.insert_many("poi", build_seed())
+
+
+async def seed_menu_if_empty() -> None:
+    """Bổ sung thực đơn mẫu còn thiếu; giữ nguyên món đã được quản lý."""
+    db = get_db()
+    from ..admin.demo_owners import _DEMO_POI_IDS
+    docs = build_menu_seed(_DEMO_POI_IDS)
+    for doc in docs:
+        existing = await db.fetchone(
+            "SELECT id FROM menu_items WHERE poi_id=%s AND name=%s", [doc["poi_id"], doc["name"]])
+        if not existing:
+            await db.insert("menu_items", {
+                "poi_id": doc["poi_id"], "name": doc["name"], "price": doc["price"],
+                "description": doc.get("description"), "created_at": doc["created_at"],
+            })
 
 
 async def dataset_version() -> str:

@@ -124,6 +124,13 @@ SCHEMA = [
         KEY ix_sub_owner (owner_id, created_at),
         KEY ix_sub_status (status, created_at)
     )""",
+    """CREATE TABLE IF NOT EXISTS favorites (
+        name VARCHAR(255) NOT NULL PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        poi_id BIGINT NOT NULL,
+        created_at DATETIME(6) NOT NULL,
+        KEY ix_fav_user (user_id, poi_id)
+    )""",
     """CREATE TABLE IF NOT EXISTS owner_notifications (
         id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
         owner_id BIGINT NOT NULL,
@@ -155,6 +162,13 @@ SCHEMA = [
         created_at DATETIME(6) NOT NULL,
         updated_at DATETIME(6) NOT NULL,
         KEY ix_task_updated (updated_at)
+    )""",
+    """CREATE TABLE IF NOT EXISTS media (
+        name VARCHAR(255) NOT NULL PRIMARY KEY,
+        uploaded_by BIGINT NOT NULL,
+        size INT NOT NULL,
+        created_at DATETIME(6) NOT NULL,
+        KEY ix_media_uploaded (uploaded_by)
     )""",
     """CREATE TABLE IF NOT EXISTS translation_cache (
         id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,

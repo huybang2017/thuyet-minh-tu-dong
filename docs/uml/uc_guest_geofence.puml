@@ -1,0 +1,42 @@
+@startuml
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+left to right direction
+
+actor "Du khách" as Guest
+actor "GPS Thiết bị" as GPS <<System>>
+actor "Dịch vụ Dịch & TTS" as TTS <<System>>
+
+rectangle "Phân hệ Du khách & Khám phá" {
+  usecase "Xem bản đồ & Marker quán" as UC_ViewMap
+  usecase "Xem chi tiết quán & Thực đơn" as UC_ViewDetail
+  usecase "Dịch thực đơn theo ngôn ngữ" as UC_TranslateMenu
+  usecase "Nghe thuyết minh thủ công" as UC_ManualAudio
+  usecase "Nghe thuyết minh tự động (Geofence)" as UC_AutoAudio
+  usecase "Xác định vùng kích hoạt (Geofence Detection)" as UC_Geofence
+  usecase "Xử lý phát âm thanh đa tầng (Fallback Pipeline)" as UC_AudioPipeline
+  usecase "Chạy chế độ Mock GPS" as UC_MockGPS
+  usecase "Ghi nhận sự kiện Analytics" as UC_Analytics
+}
+
+Guest --> UC_ViewMap
+Guest --> UC_ViewDetail
+Guest --> UC_ManualAudio
+Guest --> UC_MockGPS
+
+' Quan hệ phân rã
+UC_ViewDetail <.. UC_TranslateMenu : <<extend>>
+UC_ViewMap <.. UC_AutoAudio : <<extend>>
+UC_AutoAudio ..> UC_Geofence : <<include>>
+UC_AutoAudio ..> UC_AudioPipeline : <<include>>
+UC_ManualAudio ..> UC_AudioPipeline : <<include>>
+
+' Analytics tự động kích hoạt nếu người dùng đồng ý
+UC_AutoAudio <.. UC_Analytics : <<extend>>\n(khi đã opt-in)
+UC_ViewDetail <.. UC_Analytics : <<extend>>\n(khi đã opt-in)
+
+' Kết nối hệ thống ngoài
+UC_Geofence <-- GPS
+UC_AudioPipeline ..> TTS : <<include>>\n(TTS trực tuyến / Trình duyệt)
+@enduml

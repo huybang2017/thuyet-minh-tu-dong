@@ -1,0 +1,46 @@
+@startuml
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+skinparam ActivityBorderThickness 1.5
+
+|Du khách|
+start
+:Bật quyền định vị GPS và di chuyển;
+
+|Trình duyệt / Client|
+:Nhận tọa độ GPS (hoặc Mock GPS);
+:Tính khoảng cách với danh sách POI;
+
+if (Đi vào vùng bán kính kích hoạt?) then (Có)
+  :Chờ xác nhận ngắn (Debounce);
+  :Xác định quán có ưu tiên âm thanh cao nhất;
+  
+  |Hệ thống Backend / Dịch vụ Audio|
+  if (Đã có sẵn file Audio dịch cho ngôn ngữ này?) then (Có)
+    :Tải file Audio tĩnh từ hệ thống;
+  else (Không)
+    if (Kết nối mạng khả dụng & API khả dụng?) then (Có)
+      :Dịch nội dung & Tạo audio qua Edge-TTS;
+    else (Không)
+      |Trình duyệt / Client|
+      :Kích hoạt giọng đọc Web Speech API sẵn có;
+    endif
+  endif
+
+  |Trình duyệt / Client|
+  :Phát âm thanh thuyết minh cho Du khách;
+  
+  if (Du khách đã đồng ý Analytics?) then (Có)
+    :Gửi sự kiện "play_audio" về hệ thống;
+  else (Không)
+  endif
+
+else (Không)
+  :Tiếp tục lắng nghe tọa độ;
+endif
+
+|Du khách|
+:Nghe thuyết minh;
+stop
+@enduml

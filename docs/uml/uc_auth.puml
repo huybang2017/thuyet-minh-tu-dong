@@ -1,0 +1,40 @@
+@startuml
+skinparam monochrome true
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam defaultFontName "Arial"
+left to right direction
+
+actor "Người dùng chưa xác thực\n(Khách / Chủ quán mới)" as UnauthUser
+actor "Người dùng đã đăng nhập\n(Chủ quán / Admin)" as AuthUser
+actor "Hệ thống Email (SMTP)" as SMTP <<System>>
+
+rectangle "Phân hệ Tài khoản & Xác thực" {
+  usecase "Đăng ký tài khoản Chủ quán" as UC_Register
+  usecase "Mã hóa dữ liệu CCCD\n& Lưu đơn chờ duyệt" as UC_EncryptCCCD
+  
+  usecase "Đăng nhập hệ thống" as UC_Login
+  usecase "Làm mới phiên (Refresh Token)" as UC_Refresh
+  usecase "Đăng xuất" as UC_Logout
+  
+  usecase "Xem thông tin tài khoản hiện tại" as UC_Profile
+  usecase "Đổi mật khẩu cá nhân" as UC_ChangePass
+  
+  usecase "Yêu cầu quên mật khẩu" as UC_ForgotPass
+  usecase "Đặt lại mật khẩu bằng Token\n(1 lần, có hạn dùng)" as UC_ResetPass
+}
+
+UnauthUser --> UC_Register
+UC_Register ..> UC_EncryptCCCD : <<include>>
+
+UnauthUser --> UC_Login
+UnauthUser --> UC_ForgotPass
+UnauthUser --> UC_ResetPass
+
+UC_ForgotPass ..> SMTP : <<include>>\n(Nếu đã cấu hình SMTP)
+
+AuthUser --> UC_Refresh
+AuthUser --> UC_Logout
+AuthUser --> UC_Profile
+AuthUser --> UC_ChangePass
+@enduml

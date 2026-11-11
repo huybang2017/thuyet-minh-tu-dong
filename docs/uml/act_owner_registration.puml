@@ -1,0 +1,52 @@
+@startuml
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+skinparam ActivityBorderThickness 1.5
+
+|Chủ quán|
+start
+:Truy cập trang Đăng ký Chủ quán;
+:Nhập thông tin tài khoản, tên quán,\nsố điện thoại và số CCCD;
+:Gửi đơn đăng ký;
+
+|Hệ thống (Backend & DB)|
+:Kiểm tra tính hợp lệ của dữ liệu;
+if (Dữ liệu hợp lệ?) then (Không)
+  :Trả về lỗi yêu cầu nhập lại;
+  |Chủ quán|
+  :Hiển thị thông báo lỗi;
+  stop
+else (Có)
+  |Hệ thống (Backend & DB)|
+  :Mã hóa số CCCD trước khi lưu;
+  :Tạo tài khoản với vai trò "poi_owner"\n(Trạng thái: Chờ xác minh);
+  :Tạo thông báo đơn đăng ký mới cho Admin;
+endif
+
+|Chủ quán|
+:Đăng nhập vào cổng Chủ quán (Chế độ giới hạn:\nChỉ xem được trạng thái đơn, ghi chú & thông báo);
+
+|Quản trị viên|
+:Xem danh sách đơn đăng ký Chủ quán;
+:Kiểm tra thông tin hồ sơ & quán;
+
+if (Quyết định phê duyệt?) then (Từ chối)
+  :Nhập ghi chú / lý do từ chối;
+  |Hệ thống (Backend & DB)|
+  :Cập nhật trạng thái đơn: "Từ chối";
+  :Gửi thông báo kèm ghi chú cho Chủ quán;
+  |Chủ quán|
+  :Xem trạng thái từ chối và ghi chú từ Admin;
+  stop
+else (Chấp thuận)
+  |Quản trị viên|
+  :Xác nhận duyệt đăng ký;
+  |Hệ thống (Backend & DB)|
+  :Kích hoạt đầy đủ quyền hạn cổng "poi_owner";
+  :Gửi thông báo phê duyệt thành công;
+  |Chủ quán|
+  :Nhận thông báo và mở khóa toàn bộ\nchức năng Quản lý quán;
+  stop
+endif
+@enduml

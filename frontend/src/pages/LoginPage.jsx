@@ -23,6 +23,7 @@ export default function LoginPage() {
         <Notice err={err} />
         <button className="btn" type="submit">Đăng nhập</button>
       </form>
+      <p className="muted"><Link to="/forgot-password">Quên mật khẩu?</Link></p>
       <p className="muted">Là chủ quán? <Link to="/register-owner">Đăng ký tại đây</Link> · <Link to="/">Về bản đồ</Link></p>
     </div>
   )

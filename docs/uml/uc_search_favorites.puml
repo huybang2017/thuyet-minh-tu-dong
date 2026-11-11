@@ -1,0 +1,46 @@
+@startuml
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+left to right direction
+
+actor "Du khách" as Guest
+actor "Khách đã đăng nhập" as Member
+actor "Dịch vụ hệ thống" as System
+
+rectangle "Phân hệ Tìm kiếm & Quán yêu thích" {
+  usecase "Tìm kiếm quán" as UC_Search
+  usecase "Nhập từ khóa\n(tên, mô tả, địa chỉ)" as UC_Query
+  usecase "Lọc theo bán kính\n(khi có vị trí)" as UC_Radius
+  usecase "Xem danh sách kết quả" as UC_Results
+  usecase "Chọn quán & xem trên bản đồ" as UC_Select
+  usecase "Lưu quán yêu thích" as UC_Save
+  usecase "Xem danh sách yêu thích" as UC_List
+  usecase "Bỏ lưu quán yêu thích" as UC_Remove
+  usecase "Xem gợi ý quán" as UC_Recommend
+}
+
+Guest --> UC_Search
+Guest --> UC_Results
+Guest --> UC_Select
+Guest --> UC_Save
+Member --> UC_Search
+Member --> UC_Results
+Member --> UC_Select
+Member --> UC_Save
+Member --> UC_List
+Member --> UC_Remove
+Member --> UC_Recommend
+
+UC_Search ..> UC_Query : <<include>>
+UC_Search ..> UC_Results : <<include>>
+UC_Radius ..> UC_Search : <<extend>>\n(khi chọn bán kính)
+UC_Results ..> UC_Select : <<extend>>\n(khi chọn một quán)
+UC_List ..> UC_Remove : <<extend>>\n(khi chọn bỏ lưu)
+UC_Recommend ..> UC_List : <<extend>>
+UC_Save ..> Member : yêu cầu đăng nhập
+UC_List ..> System : tải dữ liệu đã lưu
+UC_Recommend ..> System : so khớp tên, mô tả, món ăn
+UC_Save ..> System : lưu theo tài khoản
+UC_Remove ..> System : xóa theo tài khoản
+@enduml
