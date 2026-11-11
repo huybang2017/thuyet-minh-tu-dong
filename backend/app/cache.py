@@ -52,6 +52,19 @@ async def presence_count() -> int:
     return len(_mem_presence)
 
 
+async def online_users() -> dict[str, float]:
+    """user_id -> thời điểm hoạt động cuối, cho các tài khoản đang online (trong PRESENCE_WINDOW_S)."""
+    cutoff = time.time() - PRESENCE_WINDOW_S
+    r = await _r()
+    if r:
+        rows = await r.zrangebyscore("presence", cutoff, "+inf", withscores=True)
+        out = {(k.decode() if isinstance(k, bytes) else k): s for k, s in rows}
+    else:
+        out = dict(_mem_presence)
+        out = {k: v for k, v in out.items() if v >= cutoff}
+    return {k[2:]: v for k, v in out.items() if k.startswith("u:")}
+
+
 async def rate_hit(key: str, limit: int, window_s: int) -> int | None:
     """Trả Retry-After (giây) nếu vượt hạn mức, ngược lại None."""
     r = await _r()

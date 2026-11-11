@@ -205,7 +205,25 @@ async def delete_menu(mid: int, user=Depends(require_permission("menu:delete")))
 # ---------- Users ----------
 @router.get("/users")
 async def list_users(_=Depends(require_permission("user:read"))):
-    return {"items": [service.public_user(u) for u in await get_db().fetchall("SELECT * FROM admin_users WHERE deleted_at IS NULL LIMIT 1000")]}
+    from .. import cache
+    online = await cache.online_users()
+    items = []
+    for u in await get_db().fetchall("SELECT * FROM admin_users WHERE deleted_at IS NULL LIMIT 1000"):
+        pu = service.public_user(u)
+        seen = online.get(str(pu["id"]))
+        pu["online"] = seen is not None
+        pu["last_active"] = seen
+        items.append(pu)
+    items.sort(key=lambda x: not x["online"])
+    return {"items": items, "online_count": sum(1 for x in items if x["online"])}
+
+
+@router.get("/users/{uid}")
+async def get_user(uid: str, _=Depends(require_permission("user:read"))):
+    u = await get_db().fetchone("SELECT * FROM admin_users WHERE id=%s AND deleted_at IS NULL", [uid])
+    if not u:
+        raise HTTPException(404, "User không tồn tại")
+    return service.public_user(u)
 
 
 @router.post("/users", status_code=201)

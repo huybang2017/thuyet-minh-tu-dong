@@ -1,9 +1,10 @@
 from fastapi import Depends, HTTPException, Request
 
+from .. import cache
 from ..security import decode_token
 
 
-def get_current_user(request: Request) -> dict:
+async def get_current_user(request: Request) -> dict:
     """Dual-mode: cookie httpOnly (browser) hoặc Bearer header (API/mobile)."""
     token = request.cookies.get("access_token")
     if not token:
@@ -13,6 +14,10 @@ def get_current_user(request: Request) -> dict:
     payload = decode_token(token, "access") if token else None
     if not payload:
         raise HTTPException(401, "Chưa đăng nhập hoặc phiên hết hạn")
+    try:
+        await cache.presence_touch(f"u:{payload['sub']}")
+    except Exception:
+        pass
     return payload
 
 
