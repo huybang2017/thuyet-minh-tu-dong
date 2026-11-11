@@ -44,7 +44,6 @@ class RegisterOwner(BaseModel):
     display_name: str = Field(min_length=1, max_length=80)
     shop_name: str = Field(min_length=1, max_length=120)
     phone: str = Field(pattern=r"^[0-9+ ]{8,15}$")
-    cccd: str = Field(pattern=r"^[0-9]{9,12}$")
 
 
 async def _claims(user: dict) -> dict:
@@ -193,7 +192,6 @@ async def register_owner(body: RegisterOwner, request: Request):
     })
     await db.insert("poi_owner_registrations", {
         "user_id": uid, "shop_name": body.shop_name, "phone": body.phone,
-        "cccd_encrypted": encrypt_pii(body.cccd),  # Fernet, không bao giờ trả ra API
         "status": "pending", "admin_note": None, "created_at": service.now(),
     })
     return {"ok": True, "status": "pending"}

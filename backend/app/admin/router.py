@@ -266,7 +266,7 @@ async def delete_user(uid: int, user=Depends(require_permission("user:delete")))
     if target["role"] == "super_admin" and user["role"] != "super_admin":
         raise HTTPException(403, "Chỉ super_admin mới xoá được super_admin")
     await db.execute("UPDATE admin_users SET deleted_at=%s, is_active=0 WHERE id=%s", [service.now(), uid])
-    # dữ liệu cá nhân gắn với tài khoản (đơn đăng ký có CCCD, thông báo, token đặt lại) xoá theo
+    # dữ liệu cá nhân gắn với tài khoản (đơn đăng ký, thông báo, token đặt lại) xoá theo
     await db.execute("DELETE FROM poi_owner_registrations WHERE user_id=%s", [uid])
     await db.execute("DELETE FROM owner_notifications WHERE owner_id=%s", [uid])
     await db.execute("DELETE FROM password_resets WHERE user_id=%s", [uid])
@@ -340,7 +340,7 @@ async def list_registrations(status: str | None = None, _=Depends(require_permis
     for r in await db.fetchall(sql, [status] if status else []):
         out.append({"id": r["id"], "user_id": r["user_id"], "username": r["username"],
                     "shop_name": r["shop_name"], "phone": r["phone"], "status": r["status"],
-                    "admin_note": r.get("admin_note"), "has_cccd": bool(r.get("cccd_encrypted")),
+                    "admin_note": r.get("admin_note"),
                     "created_at": r["created_at"].isoformat()})
     return {"items": out}
 

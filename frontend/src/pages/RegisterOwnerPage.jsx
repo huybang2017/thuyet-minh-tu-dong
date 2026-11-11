@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { Field, Notice, useAction } from '../components/Common'
 import { A, api } from '../services/api'
 
-const EMPTY = { username: '', email: '', password: '', display_name: '', shop_name: '', phone: '', cccd: '' }
+const EMPTY = { username: '', email: '', password: '', display_name: '', shop_name: '', phone: '' }
 
 export default function RegisterOwnerPage() {
   const [f, setF] = useState(EMPTY)
@@ -28,7 +28,6 @@ export default function RegisterOwnerPage() {
         <Field label="Họ tên"><input value={f.display_name} onChange={set('display_name')} required /></Field>
         <Field label="Tên quán"><input value={f.shop_name} onChange={set('shop_name')} required /></Field>
         <Field label="Số điện thoại"><input value={f.phone} onChange={set('phone')} required /></Field>
-        <Field label="Số CCCD (mã hoá Fernet, tự xoá sau 180 ngày)"><input value={f.cccd} onChange={set('cccd')} required inputMode="numeric" /></Field>
         <Notice err={err} />
         <button className="btn" type="submit">Gửi đăng ký</button>
       </form>

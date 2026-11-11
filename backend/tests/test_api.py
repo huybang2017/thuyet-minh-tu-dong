@@ -213,13 +213,12 @@ def test_menu_crud_and_public(admin, anon, sql):
 # ---------- owner flow ----------
 def _register(c, **over):
     body = {"username": uid("own"), "email": f"{uid('e')}@example.com", "password": "Passw0rd!x",
-            "display_name": "Chủ Quán", "shop_name": "Quán Của Tôi", "phone": "0901234567", "cccd": "012345678901"}
+            "display_name": "Chủ Quán", "shop_name": "Quán Của Tôi", "phone": "0901234567"}
     body.update(over)
     return body, c.post(f"{A}/auth/register-owner", json=body)
 
 
 def test_owner_registration_validation(anon):
-    assert _register(anon, cccd="abc")[1].status_code == 422
     assert _register(anon, email="not-an-email")[1].status_code == 422
     assert _register(anon, password="short")[1].status_code == 422
     assert _register(anon, phone="x")[1].status_code == 422
@@ -231,9 +230,8 @@ def test_owner_registration_validation(anon):
 def test_owner_full_flow(admin, anon, sql):
     body, r = _register(anon)
     assert r.status_code == 201
-    assert "012345678901" not in r.text and "cccd" not in r.json()
+    assert "cccd" not in r.json()
     reg = sql.one("SELECT * FROM poi_owner_registrations WHERE shop_name=%s AND status='pending' ORDER BY created_at DESC LIMIT 1", ["Quán Của Tôi"])
-    assert reg["cccd_encrypted"].startswith("v1:") and "012345678901" not in reg["cccd_encrypted"]
 
     owner = make_client()
     assert owner.post(f"{A}/auth/login", json={"username": body["username"], "password": body["password"]}).status_code == 200
@@ -246,7 +244,7 @@ def test_owner_full_flow(admin, anon, sql):
 
     regs = admin.get(f"{A}/registrations?status=pending").json()["items"]
     mine = next(x for x in regs if x["user_id"] == reg["user_id"])
-    assert "cccd_encrypted" not in json.dumps(mine) and "012345678901" not in json.dumps(mine) and mine["has_cccd"] is True
+    assert "cccd" not in json.dumps(mine)
     assert admin.post(f"{A}/registrations/{mine['id']}/approve", json={"admin_note": "Hồ sơ hợp lệ"}).status_code == 200
     assert admin.post(f"{A}/registrations/{mine['id']}/approve").status_code == 409
 

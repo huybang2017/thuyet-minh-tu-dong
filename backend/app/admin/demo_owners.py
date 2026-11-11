@@ -67,7 +67,7 @@ async def seed_demo_owners() -> None:
         if not reg:
             await db.insert("poi_owner_registrations", {
                 "user_id": uid, "shop_name": shop,
-                "phone": "0900000000", "cccd_encrypted": encrypt_pii("000000000000"),
+                "phone": "0900000000",
                 "status": "approved", "admin_note": "Tài khoản mẫu môi trường dev.",
                 "created_at": timestamp, "reviewed_at": timestamp,
             })

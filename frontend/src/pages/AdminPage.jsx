@@ -1,20 +1,22 @@
 import { useEffect, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { MapPicker } from '../components/MapPicker'
 import { Field, ImageManager, Notice, Table, Tabs, useAction, useList } from '../components/Common'
 import { A, api, downloadFile } from '../services/api'
 import { formatPrice } from '../services/format'
 import { useAuth } from '../stores/authStore'
 
-const POI_EMPTY = { name: '', description: '', address: '', lat: '10.7608', lng: '106.7042', trigger_radius: '30', audio_priority: '3', images: [] }
+const POI_EMPTY = { name: '', description: '', address: '', lat: '10.7608', lng: '106.7042', trigger_radius: '30', audio_priority: '3', images: [], area: '' }
 const num = (v) => (v === '' || v == null ? undefined : Number(v))
 
 function PoiForm({ initial, onSubmit, onCancel }) {
   const [f, setF] = useState(initial)
+  const [picking, setPicking] = useState(false)
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value })
   return (
     <form className="inline-form" onSubmit={(e) => { e.preventDefault(); onSubmit({
       name: f.name, description: f.description, address: f.address || '', lat: num(f.lat), lng: num(f.lng),
-      trigger_radius: num(f.trigger_radius), audio_priority: num(f.audio_priority), images: f.images || [] }) }}>
+      trigger_radius: num(f.trigger_radius), audio_priority: num(f.audio_priority), images: f.images || [], area: f.area || undefined }) }}>
       <Field label="Tên"><input value={f.name} onChange={set('name')} required /></Field>
       <Field label="Mô tả (tiếng Việt)"><textarea value={f.description} onChange={set('description')} required rows={3} /></Field>
       <Field label="Địa chỉ"><input value={f.address || ''} onChange={set('address')} maxLength={200} /></Field>
@@ -24,7 +26,11 @@ function PoiForm({ initial, onSubmit, onCancel }) {
         <Field label="Lng"><input value={f.lng} onChange={set('lng')} required /></Field>
         <Field label="Bán kính (m)"><input value={f.trigger_radius} onChange={set('trigger_radius')} /></Field>
         <Field label="Ưu tiên audio (1=cao)"><input value={f.audio_priority} onChange={set('audio_priority')} /></Field>
+        <Field label="Khu vực"><input value={f.area || ''} onChange={set('area')} placeholder="vd: Bến Thành" /></Field>
       </div>
+      <p><button type="button" className="btn ghost" onClick={() => setPicking(true)}>📍 Chọn vị trí trên bản đồ</button></p>
+      <MapPicker open={picking} lat={f.lat} lng={f.lng} onClose={() => setPicking(false)}
+        onSelect={(la, lo) => setF((cur) => ({ ...cur, lat: la.toFixed(6), lng: lo.toFixed(6) }))} />
       <button className="btn" type="submit">Lưu</button> {onCancel && <button type="button" className="btn ghost" onClick={onCancel}>Huỷ</button>}
     </form>
   )
@@ -47,7 +53,7 @@ function PoiTab() {
         onSubmit={(b) => act(async () => { await api(`${A}/pois/${editing.id}`, { method: 'PUT', body: b }); setEditing(null) }, 'Đã cập nhật')} />}
       <Table rows={items} cols={[
         { h: 'Ảnh', render: (p) => (p.images?.[0] ? <img className="mini" src={p.images[0]} alt="" /> : '—') },
-        { h: 'Tên', k: 'name' },
+        { h: 'Tên', k: 'name' }, { h: 'Khu vực', k: 'area' },
         { h: 'Trạng thái', render: (p) => <span className={p.is_active ? 'badge on' : 'badge off'}>{p.is_active ? 'Public' : p.activation_requested ? 'Chờ audio' : 'Ẩn'}</span> },
         { h: 'Audio', k: 'audio_status' },
         { h: 'Thao tác', render: (p) => (
@@ -64,6 +70,7 @@ function PoiTab() {
 
 function AudioTab() {
   const [tasks, setTasks] = useState([])
+  const pois = useList(`${A}/pois`)
   const { msg, err, run } = useAction()
   useEffect(() => {
     const es = new EventSource(`${A}/audio-tasks-stream`, { withCredentials: true })
@@ -76,7 +83,7 @@ function AudioTab() {
     <div><Notice msg={msg} err={err} />
       <p className="muted">Tiến độ cập nhật real-time qua SSE.</p>
       <Table rows={tasks} cols={[
-        { h: 'POI', k: 'poi_id' }, { h: 'Trạng thái', k: 'status' },
+        { h: 'POI', render: (t) => pois.items.find((p) => p.id === t.poi_id)?.name ?? t.poi_id }, { h: 'Trạng thái', k: 'status' },
         { h: 'Tiến độ', render: (t) => <span><progress max={t.total} value={t.done} /> {t.done}/{t.total}</span> },
         { h: 'Lỗi', render: (t) => t.error || '' },
         { h: '', render: (t) => ['running', 'paused', 'queued'].includes(t.status) && (
@@ -208,7 +215,7 @@ function ReviewTab() {
       <Field label="Ghi chú gửi tới chủ quán (admin_note)"><input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
       <h3>Đơn đăng ký chủ quán</h3>
       <Table rows={regs.items} empty="Không có đơn chờ" cols={[{ h: 'User', k: 'username' }, { h: 'Quán', k: 'shop_name' }, { h: 'SĐT', k: 'phone' },
-        { h: 'CCCD', render: (r) => (r.has_cccd ? 'đã mã hoá' : 'đã xoá') }, { h: '', render: btns('registrations') }]} />
+        { h: '', render: btns('registrations') }]} />
       <h3>Bài gửi POI từ chủ quán</h3>
       <Table rows={subs.items} empty="Không có bài chờ duyệt" cols={[{ h: 'Loại', k: 'type' }, { h: 'Tên', render: (s) => s.data?.name },
         { h: 'Nội dung', render: (s) => (s.data?.description || '').slice(0, 80) },

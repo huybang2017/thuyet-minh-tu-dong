@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { MapPicker } from '../components/MapPicker'
 import { Field, ImageManager, Notice, Table, Tabs, useAction, useList } from '../components/Common'
 import { api } from '../services/api'
 import { useAuth } from '../stores/authStore'
@@ -32,6 +33,7 @@ function Shops() {
   const subs = useList(`${O}/submissions`)
   const { msg, err, run } = useAction()
   const [edit, setEdit] = useState(null)
+  const [picking, setPicking] = useState(false)
   const [ai, setAi] = useState({ usage: null, busy: false })
   const empty = { name: '', description: '', address: '', lat: '10.7608', lng: '106.7042', images: [] }
   const [f, setF] = useState(empty)
@@ -62,12 +64,15 @@ function Shops() {
         <ImageManager value={f.images} onChange={(images) => setF((cur) => ({ ...cur, images }))} />
         {!edit && <div className="row"><Field label="Lat"><input value={f.lat} onChange={(e) => setF({ ...f, lat: e.target.value })} /></Field>
           <Field label="Lng"><input value={f.lng} onChange={(e) => setF({ ...f, lng: e.target.value })} /></Field></div>}
+        {!edit && <p><button type="button" className="btn ghost" onClick={() => setPicking(true)}>📍 Chọn vị trí trên bản đồ</button></p>}
         <button className="btn" type="submit">Gửi duyệt</button>{' '}
         <button type="button" className="btn ghost" disabled={ai.busy || !f.name || !f.description} onClick={enhance}>
           {ai.busy ? 'Đang xử lý…' : 'Nâng cấp mô tả bằng AI'}</button>
         {ai.usage && <span className="muted"> Lượt AI hôm nay: {ai.usage.used}/{ai.usage.limit ?? '∞'}</span>}
         {edit && <button type="button" className="btn ghost" onClick={() => { setEdit(null); setF(empty) }}>Huỷ sửa</button>}
       </form>
+      <MapPicker open={picking} lat={f.lat} lng={f.lng} onClose={() => setPicking(false)}
+        onSelect={(la, lo) => setF((cur) => ({ ...cur, lat: la.toFixed(6), lng: lo.toFixed(6) }))} />
       <h3>Quán của tôi</h3>
       <Table rows={pois.items} empty="Chưa có quán nào được duyệt" cols={[{ h: 'Ảnh', render: (p) => (p.images?.[0] ? <img className="mini" src={p.images[0]} alt="" /> : '—') }, { h: 'Tên', k: 'name' }, { h: 'Public', render: (p) => (p.is_active ? '✓' : '—') },
         { h: '', render: (p) => <button onClick={() => { setEdit(p.id); setF({ ...empty, name: p.name, description: p.description, address: p.address || '', images: p.images || [] }) }}>Sửa</button> }]} />

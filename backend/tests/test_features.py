@@ -130,14 +130,14 @@ def test_change_password_keeps_current_session(make_user):
 
 def test_delete_user_removes_personal_data(admin, anon, sql):
     body = {"username": uid("own"), "email": f"{uid('e')}@example.com", "password": "Passw0rd!x",
-            "display_name": "Chủ Quán", "shop_name": "Quán Xoá", "phone": "0901234567", "cccd": "012345678901"}
+            "display_name": "Chủ Quán", "shop_name": "Quán Xoá", "phone": "0901234567"}
     assert anon.post(f"{A}/auth/register-owner", json=body).status_code == 201
     user_id = sql.one("SELECT id FROM admin_users WHERE username=%s", [body["username"]])["id"]
     reg = sql.one("SELECT id FROM poi_owner_registrations WHERE user_id=%s", [user_id])
     assert admin.post(f"{A}/registrations/{reg['id']}/reject", json={"admin_note": "x"}).status_code == 200
     assert sql.scalar("SELECT COUNT(*) FROM owner_notifications WHERE owner_id=%s", [user_id]) == 1
     assert admin.delete(f"{A}/users/{user_id}").status_code == 200
-    assert sql.scalar("SELECT COUNT(*) FROM poi_owner_registrations WHERE user_id=%s", [user_id]) == 0  # CCCD mã hoá không còn
+    assert sql.scalar("SELECT COUNT(*) FROM poi_owner_registrations WHERE user_id=%s", [user_id]) == 0
     assert sql.scalar("SELECT COUNT(*) FROM owner_notifications WHERE owner_id=%s", [user_id]) == 0
 
 
