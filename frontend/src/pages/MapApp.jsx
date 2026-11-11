@@ -36,12 +36,10 @@ export default function MapApp() {
   const { t, status: uiStatus, strings: uiStrings } = useUi()
   const { user } = useAuth()
   const favoriteItems = useFavorites((s) => s.items)
-  const recommendations = useFavorites((s) => s.recommendations)
   const favoritesLoading = useFavorites((s) => s.loading)
   const favoritesError = useFavorites((s) => s.error)
   const loadFavorites = useFavorites((s) => s.load)
   const toggleFavorite = useFavorites((s) => s.toggle)
-  const clearFavorites = useFavorites((s) => s.clear)
   const [mock, setMock] = useState(false)
   const [current, setCurrent] = useState(null)
   const [tier, setTier] = useState(null)
@@ -57,10 +55,7 @@ export default function MapApp() {
   const [userPosition, setUserPosition] = useState(null)
   const favoriteIds = new Set(favoriteItems.map((poi) => poi.id))
 
-  useEffect(() => {
-    if (user) loadFavorites()
-    else clearFavorites()
-  }, [user?.id, loadFavorites, clearFavorites])
+  useEffect(() => { loadFavorites() }, [loadFavorites])
 
   // khu vực suy ra từ dữ liệu quán; tâm khu vực = trung bình toạ độ các quán trong khu
   const areas = useMemo(() => {
@@ -126,7 +121,11 @@ export default function MapApp() {
     const m = map.current
     const listen = (poi) => { setCurrent(poi); narrator.current.narrate(poi); track('poi_viewed', { poi_id: poi.id, lang }) }
     const markers = pois.map((p) => {
-      const { root, onOpen } = buildPoiPopup(p, { t, lang, onListen: listen, isFavorite: favoriteIds.has(p.id), onFavorite: toggleFavorite })
+      const { root, onOpen } = buildPoiPopup(p, {
+        t, lang, onListen: listen,
+        isFavorite: !user && favoriteIds.has(p.id),
+        onFavorite: user ? undefined : toggleFavorite,
+      })
       const popup = new maplibregl.Popup({ maxWidth: '320px', offset: 25 }).setDOMContent(root)
       popup.on('open', () => {
         // đưa marker xuống nửa dưới khung để popup (mở lên trên) không bị khuất dưới thanh tiêu đề
@@ -139,7 +138,7 @@ export default function MapApp() {
       return marker
     })
     return () => { markers.forEach((x) => x.remove()); poiMarkers.current.clear() }
-  }, [pois, lang, t, uiStrings, favoriteItems, toggleFavorite])
+  }, [pois, lang, t, uiStrings, favoriteItems, toggleFavorite, user])
 
   useEffect(() => { loc.current?.setMock(mock) }, [mock])
 
@@ -170,11 +169,11 @@ export default function MapApp() {
         map.current?.easeTo({ center: [poi.lng, poi.lat], zoom: Math.max(map.current.getZoom(), 17), duration: 450 })
         poiMarkers.current.get(poi.id)?.togglePopup()
       }} />
-      <FavoritesPanel user={user} items={favoriteItems} recommendations={recommendations} loading={favoritesLoading}
+      {!user && <FavoritesPanel items={favoriteItems} loading={favoritesLoading}
         error={favoritesError} onSelect={(poi) => {
           map.current?.easeTo({ center: [poi.lng, poi.lat], zoom: Math.max(map.current.getZoom(), 17), duration: 450 })
           poiMarkers.current.get(poi.id)?.togglePopup()
-        }} onRemove={toggleFavorite} />
+        }} onRemove={toggleFavorite} />}
       <div className="map" ref={mapEl} />
       {current && <div className="toast" role="status">🎧 [Tier {tier}] {current.name}: {current.description}</div>}
       {consent === null && (

@@ -7,7 +7,7 @@
 - Cổng quản trị (RBAC), cổng chủ quán, AI Advisor (Gemini), analytics có consent
 - Popup quán cho du khách: ảnh, mô tả, nút Nghe, thực đơn (tên món dịch theo ngôn ngữ đã chọn)
 - Quản lý ảnh quán (admin + chủ quán), quên mật khẩu qua email, xuất thống kê CSV
-- Khách đã đăng nhập có thể lưu/bỏ lưu quán yêu thích, xem danh sách và nhận gợi ý dựa trên tên, mô tả và món ăn từ quán đã lưu
+- Mọi khách truy cập có thể lưu/bỏ lưu quán yêu thích trên trình duyệt mà không cần đăng nhập
 - Không có chế độ offline (đã bỏ theo yêu cầu): ứng dụng cần kết nối tới máy chủ
 
 ## Chạy nhanh
@@ -72,7 +72,7 @@ Mở bản đồ → bật **Mock GPS** → bấm lên bản đồ ngay dưới 
 | Quản lý ảnh quán | `POST /api/v1/media/images` với body là file ảnh (không cần multipart). Chỉ JPEG/PNG/WebP ≤ 2 MB, nhận diện bằng magic bytes; tối đa 8 ảnh/quán, ảnh đầu là ảnh đại diện. POI chỉ nhận URL `/static/images/…` do hệ thống cấp. Đổi ảnh không làm sinh lại audio. Ảnh chủ quán gửi đi qua kiểm duyệt như nội dung khác |
 | Quên mật khẩu | `/forgot-password` → link `/reset-password?token=…` hết hạn sau 30 phút, dùng một lần; DB chỉ lưu SHA-256 của token. Trả cùng một thông điệp dù tài khoản có tồn tại hay không. Sau khi đặt lại/đổi mật khẩu, refresh token cũ bị từ chối (access token cũ còn hiệu lực tối đa 30 phút) |
 | Xuất thống kê | Tab Thống kê → **Tải CSV** (quyền `analytics:export`): theo ngày × sự kiện × quán × ngôn ngữ, UTF-8 BOM để Excel đọc đúng tiếng Việt, có chặn CSV formula injection |
-| Quán yêu thích | Khách đăng nhập bấm **Lưu yêu thích** trong popup quán; nút **Yêu thích** trên bản đồ hiển thị danh sách, cho phép bỏ lưu và xem quán gợi ý theo nội dung/thực đơn đã chọn |
+| Quán yêu thích | Bất kỳ khách nào bấm **Lưu yêu thích** trong popup quán; nút **Yêu thích** trên bản đồ hiển thị danh sách đã lưu trên trình duyệt và cho phép bỏ lưu. Không cần đăng nhập; danh sách gắn với trình duyệt hiện tại |
 | Admin | Sửa món + mô tả món, lọc thực đơn theo quán, đặt mật khẩu mới cho người dùng, xem ảnh trong bài chờ duyệt, bảng ngôn ngữ được chọn. Xoá tài khoản thì xoá luôn đơn đăng ký (CCCD) và thông báo của tài khoản đó |
 
 ## Ghi chú về chức năng offline đã bỏ
