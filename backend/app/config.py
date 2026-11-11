@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     mysql_user: str = "root"
     mysql_password: str = ""
     mysql_db: str = "thuyetminh"
+    mysql_ssl_ca: str = ""  # PEM của CA (Aiven)
+    mysql_ssl: bool = False  # bật khi dùng MySQL đám mây (TiDB Cloud, Aiven...) yêu cầu TLS
     redis_url: str = "redis://localhost:6379/0"
     jwt_secret: str = _DEV_DEFAULT
     refresh_token_secret: str = _DEV_DEFAULT

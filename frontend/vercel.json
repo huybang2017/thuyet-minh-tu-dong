@@ -1,0 +1,7 @@
+{
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://BACKEND_HOST.onrender.com/api/:path*" },
+    { "source": "/static/:path*", "destination": "https://BACKEND_HOST.onrender.com/static/:path*" },
+    { "source": "/((?!api/|static/|assets/).*)", "destination": "/index.html" }
+  ]
+}

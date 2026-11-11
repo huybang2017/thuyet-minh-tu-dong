@@ -324,9 +324,17 @@ _db: Database | None = None
 
 
 def _conn_kwargs() -> dict:
-    return dict(host=settings.mysql_host, port=settings.mysql_port, user=settings.mysql_user,
-                password=settings.mysql_password, charset="utf8mb4", autocommit=True,  # tránh snapshot REPEATABLE READ cũ giữa các request
-                client_flag=CLIENT.FOUND_ROWS)
+    kw = dict(host=settings.mysql_host, port=settings.mysql_port, user=settings.mysql_user,
+              password=settings.mysql_password, charset="utf8mb4", autocommit=True,  # tránh snapshot REPEATABLE READ cũ giữa các request
+              client_flag=CLIENT.FOUND_ROWS)
+    if settings.mysql_ssl:
+        import ssl
+        # MYSQL_SSL_CA = nội dung PEM của CA nhà cung cấp (Aiven có CA riêng); trống → dùng kho CA hệ thống.
+        # Luôn xác minh chuỗi chứng chỉ (VERIFY_CA).
+        ctx = ssl.create_default_context(cadata=settings.mysql_ssl_ca or None)
+        ctx.check_hostname = False
+        kw["ssl"] = ctx
+    return kw
 
 
 async def connect_db(retries: int = 30) -> Database:
