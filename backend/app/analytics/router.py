@@ -1,6 +1,8 @@
+import csv
+import io
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from .. import cache
@@ -37,6 +39,31 @@ async def collect(body: Collect, request: Request):
     await db.insert("analytics_events", {"device_id": body.device_id, "session_id": body.session_id, "event": body.event,
                                           "poi_id": body.poi_id, "lang": body.lang, "ts": now})
     return {"ok": True}
+
+
+def _csv_cell(v) -> str:
+    """Chặn CSV/formula injection khi mở bằng Excel (tên quán do người dùng nhập)."""
+    s = "" if v is None else str(v)
+    return "'" + s if s[:1] in ("=", "+", "-", "@", "\t", "\r") else s
+
+
+@router.get("/export")
+async def export_csv(days: int = Query(30, ge=1, le=365), _=Depends(require_permission("analytics:export"))):
+    """CSV theo ngày × sự kiện × quán × ngôn ngữ (UTF-8 BOM để Excel đọc đúng tiếng Việt)."""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = await get_db().fetchall(
+        "SELECT DATE(DATE_ADD(e.ts, INTERVAL 7 HOUR)) AS day, e.event, e.poi_id, p.name, e.lang, "
+        "COUNT(*) AS n, COUNT(DISTINCT e.device_id) AS devices "
+        "FROM analytics_events e LEFT JOIN poi p ON p.id=e.poi_id WHERE e.ts >= %s "
+        "GROUP BY day, e.event, e.poi_id, p.name, e.lang ORDER BY day, e.event, n DESC", [since])
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["ngay", "su_kien", "poi_id", "ten_quan", "ngon_ngu", "so_luot", "so_thiet_bi"])
+    for r in rows:
+        w.writerow([_csv_cell(x) for x in (r["day"], r["event"], r["poi_id"], r["name"], r["lang"], r["n"], r["devices"])])
+    fname = f"thong-ke_{datetime.now(timezone.utc):%Y%m%d}_{days}ngay.csv"
+    return Response("﻿" + buf.getvalue(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 @router.get("/summary")

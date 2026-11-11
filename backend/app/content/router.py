@@ -1,7 +1,9 @@
+import asyncio
 from datetime import datetime
 
-from fastapi import APIRouter, Query, Request, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 
+from ..audio import service as audio_service
 from ..db import get_db
 from ..localization import service as localization_service
 from . import service
@@ -28,7 +30,43 @@ async def nearby(lat: float, lng: float, radius: int = Query(1500, le=5000)):
     return {"pois": await service.nearby(lat, lng, radius)}
 
 
+MENU_TRANSLATE_TIMEOUT_S = 6
+_bg: set[asyncio.Task] = set()
+
+
+def _settle(t: asyncio.Task) -> None:
+    _bg.discard(t)
+    if not t.cancelled():
+        t.exception()  # đánh dấu đã xử lý, tránh cảnh báo "exception was never retrieved"
+
+
+async def _translated(text: str | None, lang: str) -> str | None:
+    """Dịch best-effort (có cache DB); quá hạn hoặc lỗi → None, frontend hiển thị bản gốc.
+    Quá hạn thì việc dịch vẫn chạy tiếp dưới nền để lần mở sau có sẵn trong cache."""
+    if not text or lang == "vi":
+        return None
+    task = asyncio.ensure_future(audio_service.translate_text(text, lang))
+    _bg.add(task)
+    task.add_done_callback(_settle)
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), MENU_TRANSLATE_TIMEOUT_S)
+    except Exception:
+        return None
+
+
 @router.get("/{poi_id}/menu")
-async def poi_menu(poi_id: int):
-    items = await get_db().fetchall("SELECT * FROM menu_items WHERE poi_id=%s AND deleted_at IS NULL LIMIT 200", [poi_id])
-    return {"items": [{**{k: v for k, v in i.items() if k not in ("_id", "deleted_at")}, "id": i["_id"]} for i in items]}
+async def poi_menu(poi_id: int, lang: str = "vi"):
+    """Thực đơn cho du khách: chỉ quán đang public; tên/mô tả món kèm bản dịch nếu có."""
+    db = get_db()
+    if not await db.fetchone("SELECT id FROM poi WHERE id=%s AND is_active=1 AND deleted_at IS NULL", [poi_id]):
+        raise HTTPException(404, "Quán không tồn tại")
+    if lang not in audio_service.VOICES:
+        lang = "vi"
+    items = await db.fetchall(
+        "SELECT * FROM menu_items WHERE poi_id=%s AND deleted_at IS NULL ORDER BY price, name LIMIT 200", [poi_id])
+    names = await asyncio.gather(*(_translated(i["name"], lang) for i in items))
+    descs = await asyncio.gather(*(_translated(i.get("description"), lang) for i in items))
+    return {"lang": lang, "items": [
+        {"id": i["id"], "poi_id": i["poi_id"], "name": i["name"], "price": i.get("price"),
+         "description": i.get("description"), "name_translated": n, "description_translated": d}
+        for i, n, d in zip(items, names, descs)]}

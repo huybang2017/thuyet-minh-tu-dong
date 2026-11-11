@@ -163,6 +163,15 @@ SCHEMA = [
         updated_at DATETIME(6) NOT NULL,
         KEY ix_task_updated (updated_at)
     )""",
+    """CREATE TABLE IF NOT EXISTS password_resets (
+        token_hash CHAR(64) NOT NULL PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        used TINYINT(1) NOT NULL DEFAULT 0,
+        created_at DATETIME(6) NOT NULL,
+        expires_at DATETIME(6) NOT NULL,
+        used_at DATETIME(6) NULL,
+        KEY ix_pwreset_user (user_id)
+    )""",
     """CREATE TABLE IF NOT EXISTS media (
         name VARCHAR(255) NOT NULL PRIMARY KEY,
         uploaded_by BIGINT NOT NULL,
@@ -344,6 +353,8 @@ async def connect_db(retries: int = 30) -> Database:
         await _db.execute(stmt)
     await _migrate_soft_delete(_db)
     await _migrate_aux_ids(_db)
+    if not await _col_exists(_db, "admin_users", "password_changed_at"):
+        await _db.execute("ALTER TABLE admin_users ADD COLUMN password_changed_at DATETIME(6) NULL")
     return _db
 
 

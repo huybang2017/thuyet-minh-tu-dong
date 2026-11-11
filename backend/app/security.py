@@ -25,10 +25,31 @@ def create_token(payload: dict, kind: str) -> str:
         ttl, secret = timedelta(minutes=settings.access_token_expire_min), settings.jwt_secret
     else:
         ttl, secret = timedelta(days=settings.refresh_token_expire_days), settings.refresh_token_secret
-    data = {**payload, "type": kind, "exp": datetime.now(timezone.utc) + ttl}
+    now = datetime.now(timezone.utc)
+    data = {**payload, "type": kind, "iat": now, "exp": now + ttl}
     if "sub" in data:
         data["sub"] = str(data["sub"])  # claim `sub` phải là chuỗi; id người dùng là số
     return jwt.encode(data, secret, algorithm="HS256")
+
+
+def issued_before(payload: dict, moment: datetime | None) -> bool:
+    """True nếu token được phát hành trước `moment` (vd. thời điểm đổi mật khẩu)."""
+    if moment is None:
+        return False
+    if moment.tzinfo is None:  # DB trả datetime naive (UTC)
+        moment = moment.replace(tzinfo=timezone.utc)
+    return int(payload.get("iat", 0)) < int(moment.timestamp())
+
+
+def new_reset_token() -> tuple[str, str]:
+    """(token gửi cho người dùng, sha256 lưu DB) — DB không giữ token gốc."""
+    import secrets
+    raw = secrets.token_urlsafe(32)
+    return raw, hashlib.sha256(raw.encode()).hexdigest()
+
+
+def hash_reset_token(raw: str) -> str:
+    return hashlib.sha256(raw.encode()).hexdigest()
 
 
 def decode_token(token: str, kind: str) -> dict | None:

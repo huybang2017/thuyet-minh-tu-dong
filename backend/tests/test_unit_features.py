@@ -30,19 +30,19 @@ def test_csv_formula_injection_guard():
 
 def test_issued_before_and_reset_token():
     now = datetime.now(timezone.utc)
-    tok = security.decode_token(security.create_token({"sub": "u"}, "refresh"), "refresh")
+    tok = security.decode_token(security.create_token({"sub": 1}, "refresh"), "refresh")
     assert "iat" in tok
     assert security.issued_before(tok, None) is False
     assert security.issued_before(tok, now + timedelta(seconds=5)) is True
     assert security.issued_before(tok, now - timedelta(seconds=5)) is False
-    # Mongo trả datetime naive (UTC)
+    # DB trả datetime naive (UTC)
     assert security.issued_before(tok, (now + timedelta(seconds=5)).replace(tzinfo=None)) is True
     raw, digest = security.new_reset_token()
     assert len(raw) >= 40 and raw != digest and security.hash_reset_token(raw) == digest
 
 
 def test_menu_seed_only_for_existing_pois():
-    docs = build_menu_seed({"poi-oc-oanh"})
-    assert docs and {d["poi_id"] for d in docs} == {"poi-oc-oanh"}
-    assert len({d["_id"] for d in docs}) == len(docs) and all(d["price"] > 0 for d in docs)
-    assert build_menu_seed(set()) == []
+    docs = build_menu_seed({"poi-oc-oanh": 7})
+    assert docs and {d["poi_id"] for d in docs} == {7}
+    assert all(d["price"] > 0 for d in docs)
+    assert build_menu_seed({}) == []

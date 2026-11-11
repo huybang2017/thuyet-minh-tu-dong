@@ -3,12 +3,13 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ..audio import task_manager
 from ..content import ops
 from ..content.service import public_poi
 from ..db import get_db
+from ..media.router import IMAGE_URL_RE
 from ..security import hash_password
 from . import service
 from .deps import require_permission
@@ -19,28 +20,43 @@ ser = service.ser
 
 
 # ---------- models ----------
-class PoiIn(BaseModel):
+class _Images(BaseModel):
+    images: list[str] | None = None
+
+    @field_validator("images")
+    @classmethod
+    def _uploaded_only(cls, v):
+        """Chỉ nhận ảnh đã tải lên qua /api/v1/media/images (không nhúng URL bên ngoài)."""
+        if v is not None:
+            if len(v) > ops.MAX_POI_IMAGES:
+                raise ValueError(f"Tối đa {ops.MAX_POI_IMAGES} ảnh")
+            bad = [u for u in v if not IMAGE_URL_RE.match(u)]
+            if bad:
+                raise ValueError(f"URL ảnh không hợp lệ: {bad[:3]}")
+            v = list(dict.fromkeys(v))  # bỏ trùng, giữ thứ tự
+        return v
+
+
+class PoiIn(_Images):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(min_length=1, max_length=3000)
     lat: float = Field(ge=-90, le=90)
     lng: float = Field(ge=-180, le=180)
     trigger_radius: int | None = Field(default=None, ge=5, le=500)
     audio_priority: int | None = Field(default=None, ge=1, le=9)
-    address: str | None = None
+    address: str | None = Field(default=None, max_length=200)
     area: str | None = Field(default=None, max_length=60)
-    images: list[str] | None = None
 
 
-class PoiPatch(BaseModel):
+class PoiPatch(_Images):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     description: str | None = Field(default=None, min_length=1, max_length=3000)
     lat: float | None = Field(default=None, ge=-90, le=90)
     lng: float | None = Field(default=None, ge=-180, le=180)
     trigger_radius: int | None = Field(default=None, ge=5, le=500)
     audio_priority: int | None = Field(default=None, ge=1, le=9)
-    address: str | None = None
+    address: str | None = Field(default=None, max_length=200)
     area: str | None = Field(default=None, max_length=60)
-    images: list[str] | None = None
 
 
 class Toggle(BaseModel):
@@ -50,14 +66,14 @@ class Toggle(BaseModel):
 class MenuIn(BaseModel):
     poi_id: int
     name: str = Field(min_length=1, max_length=120)
-    price: float = Field(ge=0)
-    description: str | None = None
+    price: float = Field(ge=0, le=100_000_000)
+    description: str | None = Field(default=None, max_length=300)
 
 
 class MenuPatch(BaseModel):
-    name: str | None = None
-    price: float | None = Field(default=None, ge=0)
-    description: str | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    price: float | None = Field(default=None, ge=0, le=100_000_000)
+    description: str | None = Field(default=None, max_length=300)
 
 
 class UserIn(BaseModel):
@@ -232,9 +248,10 @@ async def update_user(uid: int, body: UserPatch, user=Depends(require_permission
         upd["display_name"] = body.display_name
     if body.password:
         upd["password_hash"] = hash_password(body.password)
+        upd["password_changed_at"] = service.now()
     if upd:
         await db.update("admin_users", uid, upd)
-    await service.audit(user, "user.update", uid, ",".join(k for k in upd if k != "password_hash"))
+    await service.audit(user, "user.update", uid, ",".join("password" if k == "password_hash" else k for k in upd if k != "password_changed_at"))
     return service.public_user(await db.fetchone("SELECT * FROM admin_users WHERE id=%s", [uid]))
 
 
@@ -249,6 +266,10 @@ async def delete_user(uid: int, user=Depends(require_permission("user:delete")))
     if target["role"] == "super_admin" and user["role"] != "super_admin":
         raise HTTPException(403, "Chỉ super_admin mới xoá được super_admin")
     await db.execute("UPDATE admin_users SET deleted_at=%s, is_active=0 WHERE id=%s", [service.now(), uid])
+    # dữ liệu cá nhân gắn với tài khoản (đơn đăng ký có CCCD, thông báo, token đặt lại) xoá theo
+    await db.execute("DELETE FROM poi_owner_registrations WHERE user_id=%s", [uid])
+    await db.execute("DELETE FROM owner_notifications WHERE owner_id=%s", [uid])
+    await db.execute("DELETE FROM password_resets WHERE user_id=%s", [uid])
     await service.audit(user, "user.delete", uid, target["username"])
     return {"ok": True}
 

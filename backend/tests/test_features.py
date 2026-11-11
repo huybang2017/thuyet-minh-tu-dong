@@ -22,6 +22,10 @@ def _reset_rate_limits():
     yield
 
 
+def _first_poi(admin):
+    return next(p for p in admin.get(f"{A}/pois").json()["items"] if p["is_active"])["id"]
+
+
 def _poi_state(admin, pid):
     return next(p for p in admin.get(f"{A}/pois").json()["items"] if p["id"] == pid)
 
@@ -54,7 +58,7 @@ def test_poi_images_only_uploaded_and_no_audio_regen(admin, anon):
     assert admin.post(f"{A}/pois", json={**POI_BODY, "images": ["https://evil.example/x.png"]}).status_code == 422
     assert admin.post(f"{A}/pois", json={**POI_BODY, "images": ["/static/images/../../app/main.py"]}).status_code == 422
     assert admin.post(f"{A}/pois", json={**POI_BODY, "images": [url] * 9}).status_code == 422
-    pid = "poi-banh-mi"
+    pid = _first_poi(admin)
     before = _poi_state(admin, pid)
     try:
         r = admin.put(f"{A}/pois/{pid}", json={"images": [url, url]})
@@ -72,7 +76,7 @@ def _token(res: dict) -> str:
     return res["dev_reset_url"].split("token=")[1]
 
 
-def test_forgot_and_reset_password(admin, anon, mongo):
+def test_forgot_and_reset_password(admin, anon, sql):
     name, email, pw = uid("u"), f"{uid('e')}@example.com", "Passw0rd!x"
     r = admin.post(f"{A}/users", json={"username": name, "password": pw, "role": "user", "email": email})
     assert r.status_code == 201
@@ -87,8 +91,8 @@ def test_forgot_and_reset_password(admin, anon, mongo):
         res = anon.post(f"{A}/auth/forgot-password", json={"identifier": email}).json()
         assert res["message"] == ghost["message"]
         token = _token(res)
-        rec = mongo.password_resets.find_one({"user_id": user_id})
-        assert rec and rec["_id"] != token  # DB chỉ giữ hash
+        rec = sql.one("SELECT * FROM password_resets WHERE user_id=%s", [user_id])
+        assert rec and rec["token_hash"] != token  # DB chỉ giữ hash
 
         bad = anon.post(f"{A}/auth/reset-password", json={"token": "x" * 30, "new_password": "NewPassw0rd!"})
         assert bad.status_code == 400
@@ -113,7 +117,7 @@ def test_forgot_and_reset_password(admin, anon, mongo):
         assert 429 in codes
     finally:
         admin.delete(f"{A}/users/{user_id}")
-        mongo.password_resets.delete_many({"user_id": user_id})
+        sql.exec("DELETE FROM password_resets WHERE user_id=%s", [user_id])
 
 
 def test_change_password_keeps_current_session(make_user):
@@ -124,22 +128,24 @@ def test_change_password_keeps_current_session(make_user):
     assert c.post(f"{A}/auth/refresh").status_code == 200  # phiên hiện tại được cấp cookie mới
 
 
-def test_delete_user_removes_personal_data(admin, anon, mongo):
+def test_delete_user_removes_personal_data(admin, anon, sql):
     body = {"username": uid("own"), "email": f"{uid('e')}@example.com", "password": "Passw0rd!x",
             "display_name": "Chủ Quán", "shop_name": "Quán Xoá", "phone": "0901234567", "cccd": "012345678901"}
     assert anon.post(f"{A}/auth/register-owner", json=body).status_code == 201
-    user_id = mongo.admin_users.find_one({"username": body["username"]})["_id"]
-    reg = mongo.poi_owner_registrations.find_one({"user_id": user_id})
-    assert admin.post(f"{A}/registrations/{reg['_id']}/reject", json={"admin_note": "x"}).status_code == 200
-    assert mongo.owner_notifications.count_documents({"owner_id": user_id}) == 1
+    user_id = sql.one("SELECT id FROM admin_users WHERE username=%s", [body["username"]])["id"]
+    reg = sql.one("SELECT id FROM poi_owner_registrations WHERE user_id=%s", [user_id])
+    assert admin.post(f"{A}/registrations/{reg['id']}/reject", json={"admin_note": "x"}).status_code == 200
+    assert sql.scalar("SELECT COUNT(*) FROM owner_notifications WHERE owner_id=%s", [user_id]) == 1
     assert admin.delete(f"{A}/users/{user_id}").status_code == 200
-    assert mongo.poi_owner_registrations.count_documents({"user_id": user_id}) == 0  # CCCD mã hoá không còn
-    assert mongo.owner_notifications.count_documents({"owner_id": user_id}) == 0
+    assert sql.scalar("SELECT COUNT(*) FROM poi_owner_registrations WHERE user_id=%s", [user_id]) == 0  # CCCD mã hoá không còn
+    assert sql.scalar("SELECT COUNT(*) FROM owner_notifications WHERE owner_id=%s", [user_id]) == 0
 
 
 # ---------- thực đơn cho du khách ----------
-def test_public_menu_translated_and_hidden_for_inactive(admin, anon):
-    pid = "poi-oc-oanh"
+def test_public_menu_translated_and_hidden_for_inactive(admin, anon, sql):
+    pid = sql.scalar("SELECT m.poi_id FROM menu_items m JOIN poi p ON p.id=m.poi_id WHERE p.is_active=1 AND p.deleted_at IS NULL "
+                     "AND m.deleted_at IS NULL GROUP BY m.poi_id ORDER BY COUNT(*) DESC LIMIT 1")
+    assert pid, "cần ít nhất một quán có thực đơn (seed demo)"
     assert admin.post(f"{A}/menus", json={"poi_id": pid, "name": "x", "price": 1, "description": "x" * 301}).status_code == 422
     vi = anon.get(f"/api/v1/poi/{pid}/menu").json()
     assert vi["lang"] == "vi" and vi["items"] and all(i["name_translated"] is None for i in vi["items"])
@@ -148,7 +154,7 @@ def test_public_menu_translated_and_hidden_for_inactive(admin, anon):
     en = anon.get(f"/api/v1/poi/{pid}/menu?lang=en").json()
     assert en["lang"] == "en" and {"name", "name_translated", "price"} <= set(en["items"][0])
     assert anon.get(f"/api/v1/poi/{pid}/menu?lang=xx").json()["lang"] == "vi"
-    assert anon.get("/api/v1/poi/khong-ton-tai/menu").status_code == 404
+    assert anon.get("/api/v1/poi/99999999/menu").status_code == 404
     assert admin.post(f"{A}/pois/{pid}/toggle", json={"active": False}).status_code == 200
     try:
         assert anon.get(f"/api/v1/poi/{pid}/menu").status_code == 404  # quán ẩn → không lộ thực đơn
@@ -157,9 +163,10 @@ def test_public_menu_translated_and_hidden_for_inactive(admin, anon):
 
 
 # ---------- xuất thống kê ----------
-def test_analytics_export_csv(admin, anon, make_user):
+def test_analytics_export_csv(admin, anon, make_user, sql):
+    poi = sql.one("SELECT id, name FROM poi WHERE is_active=1 AND deleted_at IS NULL ORDER BY id LIMIT 1")
     dev = uid("dev") + "0000"
-    ev = {"consent": True, "device_id": dev, "event": "narration_played", "poi_id": "poi-oc-oanh", "lang": "ja"}
+    ev = {"consent": True, "device_id": dev, "event": "narration_played", "poi_id": poi["id"], "lang": "ja"}
     assert anon.post("/api/v1/analytics/collect", json=ev).status_code == 202
     assert anon.get("/api/v1/analytics/export").status_code == 401
     assert make_user("poi_owner").get("/api/v1/analytics/export").status_code == 403
@@ -171,6 +178,6 @@ def test_analytics_export_csv(admin, anon, make_user):
     assert text.startswith("﻿")
     lines = text.lstrip("﻿").splitlines()
     assert lines[0] == "ngay,su_kien,poi_id,ten_quan,ngon_ngu,so_luot,so_thiet_bi"
-    assert any(",narration_played,poi-oc-oanh,Ốc Oanh,ja," in line for line in lines[1:])
+    assert any(f",narration_played,{poi['id']},{poi['name']},ja," in line for line in lines[1:])
     top = admin.get("/api/v1/analytics/summary").json()["top_pois"]
     assert top and "name" in top[0]

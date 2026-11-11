@@ -64,7 +64,7 @@ async def save_favorite(poi_id: int, user: dict = Depends(get_current_user)):
 
 @router.delete("/{poi_id}")
 async def remove_favorite(poi_id: int, user: dict = Depends(get_current_user)):
-    await db.execute(
+    await get_db().execute(
         "DELETE FROM favorites WHERE name=%s AND user_id=%s", [f"{user['sub']}:{poi_id}", user["sub"]])
     return {"ok": True, "poi_id": poi_id}
 
