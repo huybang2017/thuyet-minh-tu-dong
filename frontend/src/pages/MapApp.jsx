@@ -17,7 +17,7 @@ import { useFavorites } from '../stores/favoritesStore'
 const MAP_CENTER = [106.7042, 10.7608] // tâm bản đồ ban đầu
 const MAP_STYLE = {
   version: 8,
-  sources: { osm: { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, attribution: '© OpenStreetMap' } },
+  sources: { osm: { type: 'raster', tiles: ['https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png', 'https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png'], tileSize: 256, attribution: '© OpenStreetMap contributors © CARTO' } },
   layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
 }
 
