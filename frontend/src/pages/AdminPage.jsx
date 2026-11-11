@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { MapPicker } from '../components/MapPicker'
 import { Field, ImageManager, Notice, Table, Tabs, useAction, useList } from '../components/Common'
 import { A, api, downloadFile } from '../services/api'
@@ -157,9 +157,10 @@ function UserTab() {
         <Field label="Mật khẩu"><input type="password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} required minLength={8} /></Field>
         <Field label="Role"><select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}>{roleNames.map((r) => <option key={r}>{r}</option>)}</select></Field>
         <button className="btn" type="submit">Tạo</button></form>}
-      <Table rows={items} cols={[{ h: 'Username', k: 'username' }, { h: 'Role', k: 'role' },
+      <Table rows={items} cols={[{ h: 'Username', render: (u) => <Link to={`/admin/users/${u.id}`}>{u.username}</Link> }, { h: 'Role', k: 'role' },
         { h: 'Owner verified', render: (u) => (u.is_poi_owner_verified ? '✓' : '—') },
         { h: 'Hoạt động', render: (u) => (u.is_active ? '✓' : 'Đã khoá') },
+        { h: 'Trực tuyến', render: (u) => (u.online ? <span style={{ color: '#16a34a', fontWeight: 600 }}>● Online</span> : <span style={{ color: '#9ca3af' }}>○ Offline</span>) },
         { h: '', render: (u) => (
           <span className="actions">
             {can('user:update') && <button onClick={() => act(() => api(`${A}/users/${u.id}`, { method: 'PUT', body: { is_active: !u.is_active } }))}>{u.is_active ? 'Khoá' : 'Mở khoá'}</button>}
@@ -285,9 +286,30 @@ const ALL_TABS = [
   { id: 'pw', label: 'Mật khẩu', perm: null, C: PasswordTab },
 ]
 
+function UserDetail({ id }) {
+  const [u, setU] = useState(null)
+  const [error, setError] = useState('')
+  useEffect(() => { api(`${A}/users/${id}`).then(setU).catch((e) => setError(e.message)) }, [id])
+  const rows = u && [
+    ['ID', u.id], ['Username', u.username], ['Email', u.email || '—'], ['Tên hiển thị', u.display_name || '—'],
+    ['Role', u.role], ['Trạng thái', u.is_active ? 'Hoạt động' : 'Đã khoá'],
+    ['Email đã xác thực', u.is_verified ? '✓' : '—'], ['Owner verified', u.is_poi_owner_verified ? '✓' : '—'],
+    ['Ngày tạo', u.created_at?.slice(0, 19).replace('T', ' ') || '—'],
+  ]
+  return (
+    <div><p><Link to="/admin" className="lnk">← Danh sách người dùng</Link></p>
+      <Notice err={error} />
+      {!u && !error && <p className="muted">Đang tải…</p>}
+      {u && <table className="tbl"><tbody>{rows.map(([k, v]) => <tr key={k}><th style={{ textAlign: 'left', width: 200 }}>{k}</th><td>{v}</td></tr>)}</tbody></table>}
+    </div>
+  )
+}
+
 export default function AdminPage() {
   const { user, ready, can, logout } = useAuth()
   const nav = useNavigate()
+  const { pathname } = useLocation()
+  const detailId = pathname.match(/^\/admin\/users\/([^/]+)/)?.[1]
   const tabs = ALL_TABS.filter((t) => !t.perm || can(t.perm))
   const [cur, setCur] = useState(tabs[0]?.id || 'pw')
   if (!ready) return <p className="muted pad">Đang tải…</p>
@@ -299,8 +321,9 @@ export default function AdminPage() {
       <header className="bar"><strong>Quản trị — {user.username} ({user.role})</strong>
         <span className="spacer" /><Link to="/" className="lnk">Bản đồ</Link>
         <button className="btn ghost light" onClick={async () => { await logout(); nav('/login') }}>Đăng xuất</button></header>
-      <Tabs tabs={tabs} current={cur} onChange={setCur} />
-      <main className="card"><T /></main>
+      {detailId ? <main className="card"><UserDetail id={detailId} /></main> : <>
+        <Tabs tabs={tabs} current={cur} onChange={setCur} />
+        <main className="card"><T /></main></>}
     </div>
   )
 }

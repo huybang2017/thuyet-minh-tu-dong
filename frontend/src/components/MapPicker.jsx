@@ -6,7 +6,7 @@ import { Modal } from './Common'
 
 const MAP_STYLE = {
   version: 8,
-  sources: { osm: { type: 'raster', tiles: ['https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png', 'https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png'], tileSize: 256, attribution: '© OpenStreetMap contributors © CARTO' } },
+  sources: { osm: { type: 'raster', tiles: ['https://a.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png', 'https://b.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png'], tileSize: 256, attribution: '© OpenStreetMap contributors, tiles OSM France' } },
   layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
 }
 
